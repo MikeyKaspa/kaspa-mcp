@@ -1,0 +1,21 @@
+pragma silverscript ^0.1.0;
+
+// Arbiter (blake2b of their pubkey) can release funds to buyer OR seller.
+// minerFee is baked into the script — must match the spend's fee exactly.
+contract Escrow(byte[32] arbiter, pubkey buyer, pubkey seller) {
+    entry spend(pubkey pk, sig s) {
+        require(blake2b(byte[](pk)) == arbiter);
+        require(checkSig(s, pk));
+
+        // 0.003 KAS — covers typical TN10 compute-mass fee for this script size.
+        int minerFee = 300000;
+        int amount = tx.inputs[this.activeInputIndex].value - minerFee;
+        require(tx.outputs[0].value == amount);
+
+        byte[36] buyerLock = new ScriptPubKeyP2PK(buyer);
+        byte[36] sellerLock = new ScriptPubKeyP2PK(seller);
+        bool sendsToBuyer = tx.outputs[0].scriptPubKey == byte[](buyerLock);
+        bool sendsToSeller = tx.outputs[0].scriptPubKey == byte[](sellerLock);
+        require(sendsToBuyer || sendsToSeller);
+    }
+}

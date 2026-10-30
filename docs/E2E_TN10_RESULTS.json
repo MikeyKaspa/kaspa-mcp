@@ -1,0 +1,39 @@
+{
+  "at": "2026-10-30T23:08:14.053Z",
+  "network": "testnet-10",
+  "results": [
+    {
+      "template": "tipjar",
+      "entry": "withdraw",
+      "p2shAddress": "kaspatest:prq27l68ksdu9swyrwugw6atns3007jwa654fnqa3jqh6ley79c8uphjug3z5",
+      "fundTxid": "4795d4620e3081d5213b031cc13482e5f7f5fc708041fd3d23be292ed0274fff",
+      "fundExplorer": "https://tn10.kaspa.stream/transactions/4795d4620e3081d5213b031cc13482e5f7f5fc708041fd3d23be292ed0274fff",
+      "spendTxid": "76b8a80e0a5b8a77176700ab5c3b28ab2cad26b12a2aba189203844451d18f33",
+      "spendExplorer": "https://tn10.kaspa.stream/transactions/76b8a80e0a5b8a77176700ab5c3b28ab2cad26b12a2aba189203844451d18f33",
+      "amountSompi": "100000000",
+      "feeSompi": "300000"
+    },
+    {
+      "template": "timeout_vault",
+      "entry": "transfer",
+      "p2shAddress": "kaspatest:pz28a3lrr752nzac80mh237uef4yw8rwszstdzya9rp5d2a3dasmsnxzhhgc2",
+      "fundTxid": "5fa6f4f68d30c9fdfac1bf2fcd5fd233e0f5eb81158a0feff93255825e5cc648",
+      "fundExplorer": "https://tn10.kaspa.stream/transactions/5fa6f4f68d30c9fdfac1bf2fcd5fd233e0f5eb81158a0feff93255825e5cc648",
+      "spendTxid": "6b4c491d410ad092a7b2a7f325c840381d696290251471046decb984087bc629",
+      "spendExplorer": "https://tn10.kaspa.stream/transactions/6b4c491d410ad092a7b2a7f325c840381d696290251471046decb984087bc629",
+      "amountSompi": "100000000",
+      "feeSompi": "300000"
+    },
+    {
+      "template": "escrow",
+      "entry": "spend",
+      "p2shAddress": "kaspatest:prjp7ujes0cdckye87ysgrkyx70ug753fu8fnyu0m96q74hwymdcygr0l30h4",
+      "fundTxid": "352281d96fed5e83210091aff1266a57db251b76ba5f95c2bbc3ba5b2b42367e",
+      "fundExplorer": "https://tn10.kaspa.stream/transactions/352281d96fed5e83210091aff1266a57db251b76ba5f95c2bbc3ba5b2b42367e",
+      "spendTxid": "5d545492e457ba9c4be9c341a20573b41adbe7581d6cf2a70792f8befba53908",
+      "spendExplorer": "https://tn10.kaspa.stream/transactions/5d545492e457ba9c4be9c341a20573b41adbe7581d6cf2a70792f8befba53908",
+      "amountSompi": "100000000",
+      "feeSompi": "300000"
+    }
+  ]
+}

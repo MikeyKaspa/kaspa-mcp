@@ -1,0 +1,17 @@
+pragma silverscript ^0.1.0;
+
+// Recipient can take funds immediately; sender reclaims after timeout.
+contract TimeoutVault(
+    pubkey sender,
+    pubkey recipient,
+    temporal timeout
+) {
+    entry transfer(sig recipientSig) {
+        require(checkSig(recipientSig, recipient));
+    }
+
+    entry timeout(sig senderSig) {
+        require(checkSig(senderSig, sender));
+        require(tx.time >= timeout);
+    }
+}

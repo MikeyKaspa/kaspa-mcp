@@ -54,10 +54,10 @@ export default {
           name: "kaspa-mcp",
           version: "0.1.0",
           rateLimit: rateLimitEnabled(env),
-          compileOnWorker:
-            false,
+          compileOnWorker: false,
+          silverscriptCompileOnWorker: false,
           compileHint:
-            "Worker free tier cannot run solc (no eval/new Function). Self-host with npm start, or pass bytecode+abi.",
+            "Workers: no solc eval; no silverc WASM. Use silverscript_templates / paste artifact / bytecode+abi. Self-host npm start for compile.",
         }),
       );
     }

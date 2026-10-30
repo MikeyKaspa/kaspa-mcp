@@ -14,6 +14,12 @@ import {
   assertRawTxShape,
   assertSourceSize,
 } from "./limits.js";
+import { listTemplates, getTemplate } from "./l1/templates.js";
+import { loadSilArtifact, entryOf } from "./l1/artifact.js";
+import { deriveP2shAddress } from "./l1/p2sh.js";
+import { prepareFund, prepareSpend, KASWARE_HINT } from "./l1/prepare.js";
+import { compileSilverscript, isSilvercAvailable, silvercCompileHint } from "./l1/compile.js";
+import { coerceBytecode } from "./l1/artifact.js";
 
 function ok(data: unknown): TextJson {
   return {
@@ -67,7 +73,7 @@ export function createKaspaMcpServer(): McpServer {
     "list_networks",
     {
       description:
-        "List Kaspa-ecosystem networks this connector knows about (Kasplex/Igra EVM, Kaspa L1 reads, covenant/vProgs stubs). Filter optional.",
+        "List networks. Primary: Kaspa L1 SilverScript (testnet-10). Secondary: Kasplex/Igra EVM. vProgs stub.",
       inputSchema: {
         kind: z.enum(["evm", "covenant", "vprogs", "l1-read"]).optional(),
         testnetOnly: z.boolean().optional(),
@@ -119,25 +125,26 @@ export function createKaspaMcpServer(): McpServer {
         `Theme: ${theme}`,
         "",
         "## Realistic paths today",
-        prefer === "covenant"
-          ? "- Native L1 covenants (Silverscript) are consensus-live but tooling is pre-audit — good for learning, careful with real funds."
-          : "- **Best for agents today:** Solidity on Kasplex or Igra testnets (EVM). Compile → faucet → deploy → call with this connector.",
+        "- **Primary today:** Kaspa L1 SilverScript on testnet-10 (Toccata). Templates: TipJar, TimeoutVault, Escrow.",
+        prefer === "evm"
+          ? "- EVM secondary: Solidity on Kasplex/Igra when you need familiar Solidity tooling."
+          : "- Prefer L1 covenants unless the user explicitly wants EVM.",
         "",
-        "### EVM L2 ideas (Kasplex / Igra)",
+        "### Native L1 SilverScript (primary)",
+        `- ${theme} as a P2SH covenant on kaspa-l1-testnet-10`,
+        "- Tools: silverscript_templates → l1_derive_p2sh → l1_prepare_fund → KasWare signPskt → l1_prepare_spend",
+        "- Compile: self-host silverc, or paste artifact (Workers cannot compile)",
+        "- Pre-audit — run kaspa-redteam before mainnet value. Mainnet writes gated.",
+        "- KCC-20: upcoming (not shipped in this connector yet)",
+        "",
+        "### EVM L2 (Kasplex / Igra) — secondary",
         `- Simple ${theme} contract on ${DEFAULT_EVM_TESTNET}`,
-        "- ERC-20 / ERC-721 themed around Kaspa culture (testnet first)",
-        "- Read-only dashboards using get_balance + read_contract",
-        `- Networks ready: ${evm.map((n) => n.id).join(", ")}`,
+        `- Networks: ${evm.map((n) => n.id).join(", ")}`,
         "",
-        "### Native L1 covenant ideas (when you opt into Silverscript)",
-        "- Vaults, time-locks, escrow-like UTXO flows (Toccata)",
-        "- KCC-20 style assets (standard Final; implementations vary)",
-        "- NOT yet: general shared-state DeFi like Uniswap (UTXO covenants are sequential per state coin)",
+        "### Roadmap",
+        "- vProgs — stub only",
         "",
-        "### Roadmap (do not promise users these work in this connector yet)",
-        "- vProgs based ZK apps — roadmap stub only",
-        "",
-        "Suggested next tools: list_networks → compile_solidity → faucet_info → deploy_contract (testnet).",
+        "Suggested: silverscript_templates → faucet_info(kaspa-l1-testnet-10) → l1_prepare_fund.",
       ].join("\n");
       return ok(text);
     },
@@ -497,6 +504,247 @@ export function createKaspaMcpServer(): McpServer {
     },
   );
 
+
+  server.registerTool(
+    "silverscript_templates",
+    {
+      description:
+        "List L1 SilverScript templates (TipJar, TimeoutVault, Escrow) with source + pinned example artifacts (silverc v1.0.0). Shared demo: use these or paste your own artifact — no in-Worker compile.",
+      inputSchema: { id: z.string().optional().describe("Optional template id for full detail") },
+    },
+    async ({ id }) => {
+      try {
+        if (id) {
+          const t = getTemplate(id);
+          return ok({
+            safety: SAFETY_BANNER,
+            template: {
+              id: t.id,
+              title: t.title,
+              description: t.description,
+              recommendedEntry: t.recommendedEntry,
+              source: t.source,
+              exampleMeta: t.exampleMeta,
+              exampleArtifact: t.exampleArtifact,
+              entries: t.loadedExample.entries,
+              bytecodeHex: t.loadedExample.bytecodeHex,
+            },
+            kcc20: "Upcoming — not shipped in this connector yet.",
+            compileHint: silvercCompileHint(),
+            walletHint: KASWARE_HINT,
+          });
+        }
+        return ok({
+          safety: SAFETY_BANNER,
+          templates: listTemplates().map((t) => ({
+            id: t.id,
+            title: t.title,
+            description: t.description,
+            recommendedEntry: t.recommendedEntry,
+            exampleP2shTestnet10: t.exampleMeta.exampleP2shTestnet10,
+            entries: Object.keys(t.loadedExample.entries),
+          })),
+          kcc20: "Upcoming — not shipped yet.",
+          compileHint: silvercCompileHint(),
+          walletHint: KASWARE_HINT,
+        });
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "silverscript_load_artifact",
+    {
+      description: "Validate a SilAbiArtifact JSON (from silverc or a template) and return bytecode, entries, template hash.",
+      inputSchema: {
+        artifact: z.unknown(),
+        contractName: z.string().optional(),
+      },
+    },
+    async ({ artifact, contractName }) => {
+      try {
+        const loaded = loadSilArtifact(artifact, contractName);
+        return ok({
+          safety: SAFETY_BANNER,
+          contractName: loaded.contractName,
+          bytecodeHex: loaded.bytecodeHex,
+          templateHashHex: loaded.templateHashHex,
+          entries: loaded.entries,
+          compilerVersion: loaded.artifact.compiler_version,
+          schemaVersion: loaded.artifact.schema_version,
+        });
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "silverscript_compile",
+    {
+      description:
+        "SELF-HOST ONLY: compile .sil with silverc binary (SILVERC_PATH). Disabled on Cloudflare Workers — use templates or paste artifact.",
+      inputSchema: {
+        source: z.string(),
+        constructorArgs: z.array(z.unknown()).optional(),
+      },
+    },
+    async ({ source, constructorArgs }) => {
+      try {
+        assertSourceSize(source);
+        if (!isSilvercAvailable()) {
+          throw new Error(silvercCompileHint());
+        }
+        if (constructorArgs && constructorArgs.length > MAX_CTOR_ARGS) {
+          throw new Error(`constructorArgs exceeds ${MAX_CTOR_ARGS}`);
+        }
+        const loaded = compileSilverscript({ source, constructorArgs });
+        return ok({
+          safety: SAFETY_BANNER,
+          contractName: loaded.contractName,
+          bytecodeHex: loaded.bytecodeHex,
+          templateHashHex: loaded.templateHashHex,
+          entries: loaded.entries,
+          artifact: loaded.artifact,
+          note: "Pin this artifact; use l1_derive_p2sh → l1_prepare_fund → wallet sign.",
+        });
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "l1_derive_p2sh",
+    {
+      description: "Derive Kaspa P2SH address from SilverScript redeem bytecode (testnet-10 or mainnet id).",
+      inputSchema: {
+        bytecodeHex: z.string().optional(),
+        artifact: z.unknown().optional(),
+        contractName: z.string().optional(),
+        network: z.string().default("kaspa-l1-testnet-10"),
+      },
+    },
+    async ({ bytecodeHex, artifact, contractName, network: nid }) => {
+      try {
+        const network = getNetwork(nid);
+        let bc: Uint8Array;
+        if (artifact) {
+          bc = loadSilArtifact(artifact, contractName).bytecode;
+        } else if (bytecodeHex) {
+          bc = coerceBytecode(bytecodeHex);
+        } else {
+          throw new Error("Provide artifact or bytecodeHex");
+        }
+        const net =
+          network.id.includes("mainnet") && !network.isTestnet ? "mainnet" : "testnet-10";
+        const derived = await deriveP2shAddress(bc, net);
+        return ok({ safety: SAFETY_BANNER, networkId: network.id, ...derived, walletHint: KASWARE_HINT });
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "l1_prepare_fund",
+    {
+      description:
+        "Prepare funding a covenant P2SH (send KAS = deploy). Mainnet gated. Returns destination + amount skeleton for KasWare.",
+      inputSchema: {
+        network: z.string().default("kaspa-l1-testnet-10"),
+        fromAddress: z.string(),
+        amountSompi: z.union([z.string(), z.number()]),
+        bytecodeHex: z.string().optional(),
+        artifact: z.unknown().optional(),
+        contractName: z.string().optional(),
+        templateId: z.string().optional(),
+      },
+    },
+    async (a) => {
+      try {
+        const network = getNetwork(a.network);
+        let bc: Uint8Array;
+        if (a.templateId) bc = getTemplate(a.templateId).loadedExample.bytecode;
+        else if (a.artifact) bc = loadSilArtifact(a.artifact, a.contractName).bytecode;
+        else if (a.bytecodeHex) bc = coerceBytecode(a.bytecodeHex);
+        else throw new Error("Provide templateId, artifact, or bytecodeHex");
+        const prepared = await prepareFund({
+          network,
+          bytecode: bc,
+          fromAddress: a.fromAddress,
+          amountSompi: BigInt(a.amountSompi),
+        });
+        return ok({ safety: SAFETY_BANNER, ...prepared });
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "l1_prepare_spend",
+    {
+      description:
+        "Prepare spending a P2SH covenant UTXO via a SilverScript entry. Pass entry args; use null/\"$sig\"/\"$pk\" with testnet privateKey to auto-sign. Mainnet gated. KasWare PSKT first.",
+      inputSchema: {
+        network: z.string().default("kaspa-l1-testnet-10"),
+        entry: z.string(),
+        args: z.array(z.unknown()),
+        destinationAddress: z.string(),
+        utxo: z.object({
+          transactionId: z.string(),
+          index: z.number(),
+          amountSompi: z.union([z.string(), z.number()]),
+          scriptPublicKey: z.object({ version: z.number(), script: z.string() }),
+        }),
+        artifact: z.unknown().optional(),
+        bytecodeHex: z.string().optional(),
+        contractName: z.string().optional(),
+        templateId: z.string().optional(),
+        feeSompi: z.union([z.string(), z.number()]).optional(),
+        outputAmountSompi: z.union([z.string(), z.number()]).optional(),
+        privateKey: z.string().optional().describe("TESTNET ONLY. Hex without 0x ok for Kaspa."),
+      },
+    },
+    async (a) => {
+      try {
+        const network = getNetwork(a.network);
+        if (a.privateKey && !network.isTestnet) {
+          throw new Error("privateKey rejected on mainnet L1");
+        }
+        let loaded;
+        if (a.templateId) loaded = getTemplate(a.templateId).loadedExample;
+        else if (a.artifact) loaded = loadSilArtifact(a.artifact, a.contractName);
+        else if (a.bytecodeHex) {
+          throw new Error("bytecodeHex alone lacks ABI entries — pass artifact or templateId");
+        } else throw new Error("Provide templateId or artifact");
+        entryOf(loaded, a.entry);
+        const prepared = await prepareSpend({
+          network,
+          loaded,
+          entryName: a.entry,
+          args: a.args,
+          destinationAddress: a.destinationAddress,
+          feeSompi: a.feeSompi != null ? BigInt(a.feeSompi) : undefined,
+          outputAmountSompi: a.outputAmountSompi != null ? BigInt(a.outputAmountSompi) : undefined,
+          privateKeyHex: a.privateKey,
+          p2shUtxo: {
+            outpoint: { transactionId: a.utxo.transactionId, index: a.utxo.index },
+            amount: BigInt(a.utxo.amountSompi),
+            scriptPublicKey: a.utxo.scriptPublicKey,
+          },
+        });
+        return ok({ safety: SAFETY_BANNER, ...prepared });
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+
   // Resources for brainstorming / docs
   server.registerResource(
     "overview",
@@ -524,10 +772,11 @@ ${SAFETY_BANNER}
 ## Backends
 | Kind | Status |
 |------|--------|
-| EVM (Kasplex, Igra) | Implemented |
-| L1 read (api.kaspa.org) | Implemented |
-| Covenants (Silverscript) | Stub — Toccata live, tooling pre-audit |
+| L1 SilverScript (primary) | Templates + artifact load + prepare fund/spend (testnet); compile self-host only |
+| EVM (Kasplex, Igra) | Secondary — Solidity path |
+| L1 read | Implemented |
 | vProgs | Roadmap stub |
+| KCC-20 | Upcoming (not shipped) |
 
 ## Cost
 Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Workers free tier is $0 until you leave free limits.

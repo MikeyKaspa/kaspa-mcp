@@ -1,0 +1,177 @@
+{
+  "meta": {
+    "templateId": "tipjar",
+    "silverc": "v1.0.0",
+    "networkHint": "testnet-10",
+    "demoPrivateKeyNote": "Throwaway test vector privkey = 32-byte 0x01 (NOT for real funds). Recompile with your keys via self-host silverc.",
+    "demoAddress": "kaspatest:qpumuen7l8wthtz45p3ftn58pvrs9xlumvkuu2xet8egzkcklqtes5z8rkmpd",
+    "exampleP2shTestnet10": "kaspatest:prfqwa3gj2y245963eqg28ce34tce9qtxfc43guxvwlz9rd05xflg6ardagg2",
+    "bytecodeLen": 69,
+    "entries": {
+      "withdraw": {
+        "dispatch_tag": "e36d1915",
+        "params": [
+          {
+            "name": "pk",
+            "type": {
+              "kind": "pubkey"
+            }
+          },
+          {
+            "name": "s",
+            "type": {
+              "kind": "sig"
+            }
+          }
+        ]
+      }
+    },
+    "recommendedEntry": "withdraw",
+    "demoPkhHex": "9407263be9dc3c4b5b9afbd02ebb5d5cbda687dfb57c65c1816c8cdca9b677a0",
+    "demoXOnlyPubHex": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+  },
+  "artifact": {
+    "schema_version": 1,
+    "compiler_version": "0.1.0",
+    "structs": {},
+    "contracts": {
+      "TipJar": {
+        "source_path": "sil/TipJar.sil",
+        "runtime_state": {
+          "source": "State",
+          "fields": []
+        },
+        "entries": {
+          "withdraw": {
+            "dispatch_tag": "e36d1915",
+            "params": [
+              {
+                "name": "pk",
+                "type": {
+                  "kind": "pubkey"
+                }
+              },
+              {
+                "name": "s",
+                "type": {
+                  "kind": "sig"
+                }
+              }
+            ]
+          }
+        },
+        "compiled": {
+          "bytecode": [
+            118,
+            4,
+            227,
+            109,
+            25,
+            21,
+            135,
+            99,
+            117,
+            120,
+            130,
+            1,
+            32,
+            157,
+            117,
+            118,
+            130,
+            1,
+            65,
+            157,
+            117,
+            120,
+            170,
+            32,
+            148,
+            7,
+            38,
+            59,
+            233,
+            220,
+            60,
+            75,
+            91,
+            154,
+            251,
+            208,
+            46,
+            187,
+            93,
+            92,
+            189,
+            166,
+            135,
+            223,
+            181,
+            124,
+            101,
+            193,
+            129,
+            108,
+            140,
+            220,
+            169,
+            182,
+            119,
+            160,
+            135,
+            105,
+            118,
+            82,
+            121,
+            172,
+            105,
+            117,
+            117,
+            81,
+            103,
+            106,
+            104
+          ],
+          "template_hash": [
+            177,
+            151,
+            227,
+            84,
+            242,
+            94,
+            42,
+            213,
+            252,
+            220,
+            194,
+            38,
+            100,
+            119,
+            119,
+            22,
+            41,
+            146,
+            164,
+            151,
+            31,
+            226,
+            46,
+            253,
+            171,
+            190,
+            115,
+            52,
+            77,
+            242,
+            225,
+            114
+          ],
+          "state_span": {
+            "offset": 0,
+            "len": 0
+          }
+        }
+      }
+    }
+  }
+}

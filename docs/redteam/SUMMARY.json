@@ -1,0 +1,353 @@
+{
+  "tipjar": {
+    "ok": true,
+    "library_version": "0.9.0",
+    "millis": 6,
+    "attacks_listed": 29,
+    "outcomes": {
+      "survived": 2,
+      "skipped": 27
+    },
+    "findings_count": 0,
+    "findings": [],
+    "notes": [
+      "judge: rusty-kaspa consensus validator 2.1.0 in process (mempool relay policy not applied)"
+    ],
+    "context": {
+      "constructor_args": [
+        {
+          "name": "ownerPkh",
+          "origin": "blake2b(party:ownerPkh)",
+          "ty": "byte[32]",
+          "value": {
+            "kind": "bytes",
+            "value": [
+              111,
+              128,
+              59,
+              118,
+              123,
+              50,
+              135,
+              233,
+              237,
+              255,
+              178,
+              73,
+              69,
+              221,
+              227,
+              175,
+              221,
+              237,
+              158,
+              207,
+              160,
+              123,
+              56,
+              68,
+              31,
+              251,
+              190,
+              230,
+              212,
+              131,
+              57,
+              254
+            ]
+          }
+        }
+      ],
+      "contract": "TipJar",
+      "spend_map": [
+        {
+          "explored": true,
+          "path": "withdraw",
+          "search_tries": 1,
+          "summary": "signed by ownerPkh; from a 10 KAS coin pays 9.9999 KAS to ownerPkh"
+        }
+      ]
+    }
+  },
+  "timeout_vault": {
+    "ok": true,
+    "library_version": "0.9.0",
+    "millis": 21,
+    "attacks_listed": 29,
+    "outcomes": {
+      "survived": 2,
+      "skipped": 27
+    },
+    "findings_count": 0,
+    "findings": [],
+    "notes": [
+      "judge: rusty-kaspa consensus validator 2.1.0 in process (mempool relay policy not applied)"
+    ],
+    "context": {
+      "constructor_args": [
+        {
+          "name": "sender",
+          "origin": "party:sender",
+          "ty": "pubkey",
+          "value": {
+            "kind": "bytes",
+            "value": [
+              88,
+              156,
+              19,
+              76,
+              232,
+              242,
+              155,
+              98,
+              72,
+              56,
+              165,
+              147,
+              29,
+              150,
+              42,
+              99,
+              163,
+              154,
+              25,
+              254,
+              106,
+              13,
+              62,
+              72,
+              218,
+              19,
+              81,
+              195,
+              96,
+              244,
+              203,
+              20
+            ]
+          }
+        },
+        {
+          "name": "recipient",
+          "origin": "party:recipient",
+          "ty": "pubkey",
+          "value": {
+            "kind": "bytes",
+            "value": [
+              226,
+              64,
+              91,
+              71,
+              212,
+              7,
+              136,
+              55,
+              157,
+              152,
+              176,
+              97,
+              101,
+              243,
+              33,
+              36,
+              223,
+              169,
+              84,
+              122,
+              231,
+              38,
+              147,
+              5,
+              78,
+              132,
+              94,
+              206,
+              239,
+              99,
+              173,
+              161
+            ]
+          }
+        },
+        {
+          "name": "timeout",
+          "origin": "default",
+          "ty": "temporal",
+          "value": {
+            "kind": "int",
+            "value": 1600000000000
+          }
+        }
+      ],
+      "contract": "TimeoutVault",
+      "spend_map": [
+        {
+          "explored": true,
+          "path": "timeout",
+          "search_tries": 2,
+          "summary": "signed by sender; from a 10 KAS coin pays 9.9999 KAS to sender; needs lock_time >= 1600000000000 (earliest accepted 1600000000000)"
+        },
+        {
+          "explored": true,
+          "path": "transfer",
+          "search_tries": 1,
+          "summary": "signed by recipient; from a 10 KAS coin pays 9.9999 KAS to recipient"
+        }
+      ]
+    }
+  },
+  "escrow": {
+    "ok": true,
+    "library_version": "0.9.0",
+    "millis": 59,
+    "attacks_listed": 29,
+    "outcomes": {
+      "survived": 2,
+      "skipped": 27
+    },
+    "findings_count": 0,
+    "findings": [],
+    "notes": [
+      "judge: rusty-kaspa consensus validator 2.1.0 in process (mempool relay policy not applied)"
+    ],
+    "context": {
+      "constructor_args": [
+        {
+          "name": "arbiter",
+          "origin": "blake2b(party:arbiter)",
+          "ty": "byte[32]",
+          "value": {
+            "kind": "bytes",
+            "value": [
+              225,
+              189,
+              190,
+              43,
+              10,
+              83,
+              5,
+              128,
+              122,
+              56,
+              70,
+              179,
+              143,
+              225,
+              230,
+              32,
+              0,
+              29,
+              5,
+              69,
+              214,
+              68,
+              120,
+              171,
+              216,
+              116,
+              173,
+              239,
+              65,
+              26,
+              33,
+              107
+            ]
+          }
+        },
+        {
+          "name": "buyer",
+          "origin": "party:buyer",
+          "ty": "pubkey",
+          "value": {
+            "kind": "bytes",
+            "value": [
+              130,
+              188,
+              85,
+              245,
+              40,
+              66,
+              135,
+              27,
+              12,
+              100,
+              143,
+              91,
+              197,
+              198,
+              129,
+              205,
+              30,
+              8,
+              175,
+              126,
+              132,
+              34,
+              141,
+              170,
+              165,
+              3,
+              66,
+              136,
+              26,
+              153,
+              69,
+              92
+            ]
+          }
+        },
+        {
+          "name": "seller",
+          "origin": "party:seller",
+          "ty": "pubkey",
+          "value": {
+            "kind": "bytes",
+            "value": [
+              209,
+              140,
+              199,
+              87,
+              143,
+              150,
+              140,
+              8,
+              146,
+              254,
+              131,
+              130,
+              129,
+              34,
+              223,
+              133,
+              99,
+              103,
+              42,
+              180,
+              34,
+              206,
+              91,
+              139,
+              206,
+              27,
+              129,
+              122,
+              191,
+              174,
+              6,
+              120
+            ]
+          }
+        }
+      ],
+      "contract": "Escrow",
+      "spend_map": [
+        {
+          "explored": true,
+          "path": "spend",
+          "search_tries": 179,
+          "summary": "signed by arbiter; from a 10 KAS coin pays 9.997 KAS to buyer"
+        }
+      ]
+    }
+  }
+}

@@ -6,7 +6,7 @@ export class L1ReadBackend implements KaspaBackend {
   readonly kind = "l1-read" as const;
 
   supports(network: NetworkInfo): boolean {
-    return network.kind === "l1-read" && Boolean(network.rpcUrl);
+    return (network.kind === "l1-read" || network.kind === "covenant") && Boolean(network.rpcUrl);
   }
 
   async getBalance(network: NetworkInfo, address: string): Promise<BalanceResult> {
@@ -18,7 +18,7 @@ export class L1ReadBackend implements KaspaBackend {
     const kas = Number(sompi) / 1e8;
     return {
       address,
-      balanceWei: sompi.toString(), // sompi
+      balanceWei: sompi.toString(),
       balanceFormatted: String(kas),
       symbol: network.nativeCurrency.symbol,
       networkId: network.id,
@@ -33,7 +33,11 @@ export class L1ReadBackend implements KaspaBackend {
     return {
       hash,
       status: "unknown",
-      explorerUrl: network.explorerUrl ? `${network.explorerUrl}/txs/${hash}` : undefined,
+      explorerUrl: network.explorerUrl
+        ? `${network.explorerUrl.replace(/\/$/, "")}/${
+            network.explorerUrl.includes("kaspa.stream") ? "transactions" : "txs"
+          }/${hash}`
+        : undefined,
       networkId: network.id,
       raw: data,
     };

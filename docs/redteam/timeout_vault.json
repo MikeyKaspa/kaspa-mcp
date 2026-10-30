@@ -1,0 +1,448 @@
+{
+  "files": [],
+  "report": {
+    "context": {
+      "constructor_args": [
+        {
+          "name": "sender",
+          "origin": "party:sender",
+          "ty": "pubkey",
+          "value": {
+            "kind": "bytes",
+            "value": [
+              88,
+              156,
+              19,
+              76,
+              232,
+              242,
+              155,
+              98,
+              72,
+              56,
+              165,
+              147,
+              29,
+              150,
+              42,
+              99,
+              163,
+              154,
+              25,
+              254,
+              106,
+              13,
+              62,
+              72,
+              218,
+              19,
+              81,
+              195,
+              96,
+              244,
+              203,
+              20
+            ]
+          }
+        },
+        {
+          "name": "recipient",
+          "origin": "party:recipient",
+          "ty": "pubkey",
+          "value": {
+            "kind": "bytes",
+            "value": [
+              226,
+              64,
+              91,
+              71,
+              212,
+              7,
+              136,
+              55,
+              157,
+              152,
+              176,
+              97,
+              101,
+              243,
+              33,
+              36,
+              223,
+              169,
+              84,
+              122,
+              231,
+              38,
+              147,
+              5,
+              78,
+              132,
+              94,
+              206,
+              239,
+              99,
+              173,
+              161
+            ]
+          }
+        },
+        {
+          "name": "timeout",
+          "origin": "default",
+          "ty": "temporal",
+          "value": {
+            "kind": "int",
+            "value": 1600000000000
+          }
+        }
+      ],
+      "contract": "TimeoutVault",
+      "spend_map": [
+        {
+          "explored": true,
+          "path": "timeout",
+          "search_tries": 2,
+          "summary": "signed by sender; from a 10 KAS coin pays 9.9999 KAS to sender; needs lock_time >= 1600000000000 (earliest accepted 1600000000000)"
+        },
+        {
+          "explored": true,
+          "path": "transfer",
+          "search_tries": 1,
+          "summary": "signed by recipient; from a 10 KAS coin pays 9.9999 KAS to recipient"
+        }
+      ]
+    },
+    "library_version": "0.9.0",
+    "millis": 21,
+    "notes": [
+      "judge: rusty-kaspa consensus validator 2.1.0 in process (mempool relay policy not applied)"
+    ],
+    "results": [
+      {
+        "id": "SIG-01",
+        "millis": 0,
+        "outcome": {
+          "attempts": 4,
+          "status": "survived"
+        },
+        "pack": "sig",
+        "target": "covenant",
+        "title": "Spend a signed path with an invalid signature"
+      },
+      {
+        "id": "SIG-02",
+        "millis": 1,
+        "outcome": {
+          "attempts": 4,
+          "status": "survived"
+        },
+        "pack": "sig",
+        "target": "covenant",
+        "title": "Sign with the attacker's own key"
+      },
+      {
+        "id": "SEC-01",
+        "millis": 0,
+        "outcome": {
+          "reason": "no explored path this attack applies to",
+          "status": "skipped"
+        },
+        "pack": "secrets",
+        "target": "covenant",
+        "title": "Front-run a revealed secret or reading"
+      },
+      {
+        "id": "ST-01",
+        "millis": 0,
+        "outcome": {
+          "reason": "no explored permissionless path carries a key in its next state",
+          "status": "skipped"
+        },
+        "pack": "state",
+        "target": "covenant",
+        "title": "Rewrite the recorded owner of the next state"
+      },
+      {
+        "id": "OUT-01",
+        "millis": 0,
+        "outcome": {
+          "reason": "no explored path this attack applies to",
+          "status": "skipped"
+        },
+        "pack": "outputs",
+        "target": "covenant",
+        "title": "Correct value, attacker's script"
+      },
+      {
+        "id": "ORC-04",
+        "millis": 0,
+        "outcome": {
+          "reason": "no explored path this attack applies to",
+          "status": "skipped"
+        },
+        "pack": "oracle",
+        "target": "covenant",
+        "title": "Reading signed by the attacker's own key"
+      },
+      {
+        "id": "OUT-02",
+        "millis": 0,
+        "outcome": {
+          "reason": "no explored path this attack applies to",
+          "status": "skipped"
+        },
+        "pack": "outputs",
+        "target": "covenant",
+        "title": "Correct script, reduced value"
+      },
+      {
+        "id": "OUT-03",
+        "millis": 0,
+        "outcome": {
+          "reason": "no explored permissionless path creates more than one output",
+          "status": "skipped"
+        },
+        "pack": "outputs",
+        "target": "covenant",
+        "title": "Valid output 0, skim a later output"
+      },
+      {
+        "id": "OUT-04",
+        "millis": 0,
+        "outcome": {
+          "reason": "no explored permissionless path leaves value unclaimed",
+          "status": "skipped"
+        },
+        "pack": "outputs",
+        "target": "covenant",
+        "title": "Keep what the fixed payouts leave over"
+      },
+      {
+        "id": "FEE-01",
+        "millis": 0,
+        "outcome": {
+          "reason": "no explored path this attack applies to",
+          "status": "skipped"
+        },
+        "pack": "fees",
+        "target": "covenant",
+        "title": "Route value to the miner fee"
+      },
+      {
+        "id": "FAM-01",
+        "millis": 0,
+        "outcome": {
+          "reason": "no explored spend creates coins of another program (give the project's files together)",
+          "status": "skipped"
+        },
+        "pack": "family",
+        "target": "covenant",
+        "title": "Mint more than allowed"
+      },
+      {
+        "id": "IN-01",
+        "millis": 0,
+        "outcome": {
+          "reason": "no explored path this attack applies to",
+          "status": "skipped"
+        },
+        "pack": "inputs",
+        "target": "covenant",
+        "title": "Two covenant coins, one shared set of outputs"
+      },
+      {
+        "id": "FAM-02",
+        "millis": 0,
+        "outcome": {
+          "reason": "no explored spend creates coins of another program (give the project's files together)",
+          "status": "skipped"
+        },
+        "pack": "family",
+        "target": "covenant",
+        "title": "Mint to the attacker"
+      },
+      {
+        "id": "IN-02",
+        "millis": 0,
+        "outcome": {
+          "reason": "no explored path this attack applies to",
+          "status": "skipped"
+        },
+        "pack": "inputs",
+        "target": "covenant",
+        "title": "Attacker's coin at input 0, covenant moved behind it"
+      },
+      {
+        "id": "FAM-03",
+        "millis": 0,
+        "outcome": {
+          "reason": "no explored spend creates coins of another program (give the project's files together)",
+          "status": "skipped"
+        },
+        "pack": "family",
+        "target": "covenant",
+        "title": "Mint one coin twice"
+      },
+      {
+        "id": "FAM-04",
+        "millis": 0,
+        "outcome": {
+          "reason": "no explored spend creates coins of another program (give the project's files together)",
+          "status": "skipped"
+        },
+        "pack": "family",
+        "target": "covenant",
+        "title": "Coin of the right program, wrong family"
+      },
+      {
+        "id": "FAM-05",
+        "millis": 0,
+        "outcome": {
+          "reason": "no explored spend creates coins of another program (give the project's files together)",
+          "status": "skipped"
+        },
+        "pack": "family",
+        "target": "covenant",
+        "title": "Authority does not continue"
+      },
+      {
+        "id": "FAM-06",
+        "millis": 0,
+        "outcome": {
+          "reason": "no explored spend creates coins of another program (give the project's files together)",
+          "status": "skipped"
+        },
+        "pack": "family",
+        "target": "covenant",
+        "title": "Replay the same proof on the next state"
+      },
+      {
+        "id": "FAM-07",
+        "millis": 0,
+        "outcome": {
+          "reason": "no explored spend creates coins of another program (give the project's files together)",
+          "status": "skipped"
+        },
+        "pack": "family",
+        "target": "covenant",
+        "title": "Start the family a second time"
+      },
+      {
+        "id": "FAM-08",
+        "millis": 0,
+        "outcome": {
+          "reason": "no explored spend creates coins of another program (give the project's files together)",
+          "status": "skipped"
+        },
+        "pack": "family",
+        "target": "covenant",
+        "title": "Hand out the minting power"
+      },
+      {
+        "id": "FAM-09",
+        "millis": 0,
+        "outcome": {
+          "reason": "no explored spend creates coins of another program (give the project's files together)",
+          "status": "skipped"
+        },
+        "pack": "family",
+        "target": "covenant",
+        "title": "Take tokens without paying"
+      },
+      {
+        "id": "FAM-10",
+        "millis": 0,
+        "outcome": {
+          "reason": "no explored spend creates coins of another program (give the project's files together)",
+          "status": "skipped"
+        },
+        "pack": "family",
+        "target": "covenant",
+        "title": "Sweep coins sent to the covenant"
+      },
+      {
+        "id": "BOR-01",
+        "millis": 0,
+        "outcome": {
+          "reason": "no coin the covenant holds was bricked by a borrow (where a borrow only moves it, see BOR-02)",
+          "status": "skipped"
+        },
+        "pack": "borrow",
+        "target": "covenant",
+        "title": "A stranger borrows the coin it holds and bricks it"
+      },
+      {
+        "id": "BOR-02",
+        "millis": 0,
+        "outcome": {
+          "reason": "no explored spend lets a stranger borrow a coin the covenant holds (see BOR-01)",
+          "status": "skipped"
+        },
+        "pack": "borrow",
+        "target": "covenant",
+        "title": "A stranger borrows the coin it holds"
+      },
+      {
+        "id": "BOR-03",
+        "millis": 0,
+        "outcome": {
+          "reason": "no token program with a borrowed receive among the explored paths",
+          "status": "skipped"
+        },
+        "pack": "borrow",
+        "target": "covenant",
+        "title": "A borrow takes the coin"
+      },
+      {
+        "id": "BOR-04",
+        "millis": 0,
+        "outcome": {
+          "reason": "no token program with a borrowed receive among the explored paths",
+          "status": "skipped"
+        },
+        "pack": "borrow",
+        "target": "covenant",
+        "title": "A borrow adds nothing"
+      },
+      {
+        "id": "BOR-05",
+        "millis": 0,
+        "outcome": {
+          "reason": "no token program with a borrowed receive among the explored paths",
+          "status": "skipped"
+        },
+        "pack": "borrow",
+        "target": "covenant",
+        "title": "A borrow takes the coin's KAS"
+      },
+      {
+        "id": "BOR-06",
+        "millis": 0,
+        "outcome": {
+          "reason": "no token program with a borrowed receive among the explored paths",
+          "status": "skipped"
+        },
+        "pack": "borrow",
+        "target": "covenant",
+        "title": "A borrow without the borrow key"
+      },
+      {
+        "id": "BOR-07",
+        "millis": 0,
+        "outcome": {
+          "reason": "no token program with a borrowed receive among the explored paths",
+          "status": "skipped"
+        },
+        "pack": "borrow",
+        "target": "covenant",
+        "title": "A borrow rewrites the borrow settings"
+      }
+    ],
+    "subject_hash": "3f5e6c60a75a847eab3cd68542ad630fe584b647a07e7d595d3a6918d52d2b89",
+    "subject_name": "timeout_vault.sil",
+    "target": "covenant",
+    "tool_version": "0.14.1",
+    "web_subject": "timeout_vault.sil"
+  }
+}

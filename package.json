@@ -1,19 +1,19 @@
 {
   "name": "kaspa-mcp",
   "version": "0.1.0",
-  "description": "Public open-source MCP connector for building and deploying smart contracts on Kaspa ecosystem EVM networks (Kasplex, Igra) plus Kaspa L1 reads.",
+  "description": "Public open-source MCP connector for Kaspa L1 SilverScript (primary) and Kasplex/Igra EVM (secondary). Non-custodial, $0 public RPCs.",
   "type": "module",
   "license": "MIT",
   "author": "Kaspa community",
   "keywords": [
     "kaspa",
+    "silverscript",
+    "covenants",
+    "toccata",
     "kasplex",
     "igra",
     "mcp",
-    "model-context-protocol",
-    "smart-contracts",
-    "solidity",
-    "evm"
+    "smart-contracts"
   ],
   "repository": {
     "type": "git",
@@ -38,13 +38,17 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e:testnet": "tsx scripts/e2e-testnet.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "e2e:l1-tn10": "tsx scripts/e2e-l1-tn10.mjs",
+    "test:l1": "vitest run tests/l1-silverscript.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
+    "@noble/hashes": "^1.8.0",
     "ethers": "^6.17.0",
     "solc": "^0.8.28",
-    "zod": "^3.24.0"
+    "zod": "^3.24.0",
+    "kaspa": "file:./vendor/kaspa"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261030.1",

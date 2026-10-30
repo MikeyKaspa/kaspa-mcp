@@ -1,0 +1,9 @@
+pragma silverscript ^0.1.0;
+
+// Anyone can fund this P2SH. Owner withdraws with matching pubkey + sig.
+contract TipJar(byte[32] ownerPkh) {
+    entry withdraw(pubkey pk, sig s) {
+        require(blake2b(byte[](pk)) == ownerPkh);
+        require(checkSig(s, pk));
+    }
+}

@@ -20,7 +20,10 @@ describe("networks registry", () => {
   it("resolves backends", () => {
     expect(backendFor(getNetwork("kasplex-testnet")).kind).toBe("evm");
     expect(backendFor(getNetwork("kaspa-l1-mainnet")).kind).toBe("l1-read");
-    expect(backendFor(getNetwork("kaspa-covenants-mainnet")).kind).toBe("covenant");
+    // Covenant networks with rpcUrl use L1ReadBackend for balance/tx; MCP tools handle SilverScript.
+    expect(backendFor(getNetwork("kaspa-covenants-mainnet")).kind).toBe("l1-read");
+    expect(backendFor(getNetwork("kaspa-l1-testnet-10")).kind).toBe("l1-read");
+    expect(getNetwork("kaspa-l1-testnet-10").kind).toBe("covenant");
     expect(backendFor(getNetwork("kaspa-vprogs")).kind).toBe("vprogs");
   });
 });
