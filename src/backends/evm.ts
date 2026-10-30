@@ -9,7 +9,8 @@ import type {
   PreparedTx,
   TxResult,
 } from "../types.js";
-import { SafetyError, assertCanSignWithKey } from "../safety.js";
+import { SafetyError, normalizeTestnetPrivateKey } from "../safety.js";
+import { assertRawTxShape } from "../limits.js";
 import { compileSolidityAsync } from "./compile.js";
 
 /** @deprecated Prefer compileSolidityAsync — kept as async alias for callers. */
@@ -133,7 +134,8 @@ export class EvmBackend implements KaspaBackend {
     const p = providerFor(network);
 
     if (options.signedRawTx) {
-      const resp = await p.broadcastTransaction(options.signedRawTx);
+      assertRawTxShape(options.signedRawTx);
+      const resp = await p.broadcastTransaction(options.signedRawTx.trim());
       const receipt = await resp.wait();
       const addr = receipt?.contractAddress ?? undefined;
       return {
@@ -145,14 +147,14 @@ export class EvmBackend implements KaspaBackend {
       };
     }
 
-    assertCanSignWithKey(network, options.privateKey);
-    if (!options.privateKey) {
+    const privateKey = normalizeTestnetPrivateKey(network, options.privateKey);
+    if (!privateKey) {
       throw new SafetyError(
         "deploy requires testnet privateKey (ephemeral) or signedRawTx. On mainnet use prepare_deploy.",
       );
     }
 
-    const wallet = new Wallet(options.privateKey, p);
+    const wallet = new Wallet(privateKey, p);
     const factory = new ContractFactory(compiled.abi as never, compiled.bytecode, wallet);
     const fee = await p.getFeeData();
     const min = network.minGasPriceWei ? BigInt(network.minGasPriceWei) : 0n;
@@ -232,8 +234,9 @@ export class EvmBackend implements KaspaBackend {
   }
 
   async sendRawTransaction(network: NetworkInfo, rawTx: string): Promise<TxResult> {
+    assertRawTxShape(rawTx);
     const p = providerFor(network);
-    const resp = await p.broadcastTransaction(rawTx);
+    const resp = await p.broadcastTransaction(rawTx.trim());
     return {
       hash: resp.hash,
       status: "pending",

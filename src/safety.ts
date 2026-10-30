@@ -20,8 +20,10 @@ export class SafetyError extends Error {
   }
 }
 
-export function assertCanSignWithKey(network: NetworkInfo, privateKey?: string): void {
-  if (!privateKey) return;
+/** Normalize and validate a testnet-only private key. Returns trimmed 0x-hex. */
+export function normalizeTestnetPrivateKey(network: NetworkInfo, privateKey?: string): string | undefined {
+  if (privateKey == null || privateKey === "") return undefined;
+  const key = privateKey.trim();
   if (!network.isTestnet) {
     throw new SafetyError(
       `Refusing private key on "${network.id}" (real value). ` +
@@ -29,9 +31,18 @@ export function assertCanSignWithKey(network: NetworkInfo, privateKey?: string):
         `then send_raw_transaction.`,
     );
   }
-  if (!/^0x[0-9a-fA-F]{64}$/.test(privateKey)) {
-    throw new SafetyError("privateKey must be 0x-prefixed 32-byte hex (testnet only).");
+  // Reject mnemonics, keystores, 0x-less hex, whitespace-only tricks.
+  if (!/^0x[0-9a-fA-F]{64}$/.test(key)) {
+    throw new SafetyError(
+      "privateKey must be 0x-prefixed 32-byte hex (testnet only). Mnemonics and keystores are rejected.",
+    );
   }
+  return key;
+}
+
+/** @deprecated Prefer normalizeTestnetPrivateKey — kept for call sites that only assert. */
+export function assertCanSignWithKey(network: NetworkInfo, privateKey?: string): void {
+  normalizeTestnetPrivateKey(network, privateKey);
 }
 
 export function redactSecrets(text: string): string {

@@ -14,10 +14,12 @@ A shared demo runs at `https://kaspa-mcp.kaspa-mcp.workers.dev/mcp` on a **dedic
 |-----|----------------|
 | **100,000 requests/day** | Whole free account, resets **midnight UTC**. When hit, Cloudflare returns Error 1027. |
 | **~10 ms CPU / request** | Free Workers CPU budget. Heavy `compile_solidity` (CDN solc) fails first. |
-| **60 requests / min / IP** | Per-IP rate limit on the shared demo. |
-| **5 compiles / 10 min / IP** | Tighter limit for `compile_solidity` (Cache API window + 1/min binding floor). |
+| **60 requests / min / actor** | Per IP, or per `X-Kaspa-Demo-Key` when set. |
+| **180 requests / min / IP** | Secondary ceiling so rotating demo keys cannot bypass limits. |
+| **5 compiles / 10 min / actor** | Tighter limit for `compile_solidity` (Cache API window + 1/min binding floor). |
+| **Worker compile** | Shared demo preloads solc at isolate startup when possible. If compile fails, self-host with `npm start` or pass `bytecode`+`abi` to `prepare_deploy` / `deploy_contract`. |
 
-Over the per-IP limit you get a JSON-RPC `-32000` / HTTP 429 asking you to **self-host**. Limits are enforced with the free Workers Rate Limiting binding plus a Cache API counter (per colo; approximate under multi-colo load). Optional header `X-Kaspa-Demo-Key` gives a stable bucket behind NAT. Anyone with real usage should: one-click Deploy button (or one `wrangler deploy`) to **your own free Cloudflare account** → your own 100k/day; or run locally with `npx` / `npm start` for **no shared limits**.
+Over the limit you get a JSON-RPC `-32000` / HTTP 429 asking you to **self-host**. Limits use Cloudflare’s trusted `CF-Connecting-IP` (not spoofable `X-Forwarded-For`), the free Rate Limiting binding, and a Cache API counter (per colo; approximate under multi-colo load). Optional header `X-Kaspa-Demo-Key` gives a stable bucket behind NAT, still capped by the per-IP ceiling. Anyone with real usage should: one-click Deploy button (or one `wrangler deploy`) to **your own free Cloudflare account** → your own 100k/day; or run locally with `npx` / `npm start` for **no shared limits**.
 
 Rate limits are **off by default** for self-hosters. Set `RATE_LIMIT_ENABLED=true` (and optional `RATE_LIMIT_*` vars) only if you want them.
 
@@ -45,11 +47,25 @@ claude mcp add --transport http kaspa http://127.0.0.1:8787/mcp
 
 ## Connect the shared demo to your AI
 
-Paste this MCP URL into your AI app’s custom connector / MCP settings:
+MCP URL:
 
 ```
 https://kaspa-mcp.kaspa-mcp.workers.dev/mcp
 ```
+
+**Claude (claude.ai / Desktop / Cowork)** — [Custom connectors (remote MCP)](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp): Settings → Connectors → Add custom connector → paste the HTTPS URL above → choose **No sign-in** (this demo is open). Claude’s cloud must reach the URL (public internet only; localhost will not work as a custom connector).
+
+**Claude Desktop local server** — for `npm start` on your machine, bridge with stdio (Custom Connectors cannot see localhost):
+
+```bash
+# claude_desktop_config.json (mcp-remote speaks Streamable HTTP to your local server)
+claude mcp add --transport http kaspa http://127.0.0.1:8787/mcp
+# or: npx -y mcp-remote http://127.0.0.1:8787/mcp --transport http-only
+```
+
+**Cursor** — Settings → MCP → Add new MCP server → Type **URL** / Streamable HTTP → paste the demo URL (or your self-hosted `/mcp`).
+
+**Other MCP clients** — any client that supports Streamable HTTP MCP can POST to `/mcp`.
 
 ## Testnet gas (Kasplex)
 
@@ -92,10 +108,10 @@ Native L1: Toccata covenants live since 2026-06-30; Silverscript pre-audit; vPro
 
 ## Safety
 
-1. Never stores keys / mnemonics.  
-2. **Mainnet:** private keys **rejected** → `prepare_*` + wallet sign + `send_raw_transaction`.  
-3. **Testnet only:** optional per-call ephemeral `privateKey`.  
-4. Secrets redacted from errors.
+1. Never stores keys / mnemonics / keystores.  
+2. **Mainnet:** private keys **rejected** (including whitespace / 0x-less / mnemonic / JSON keystore attempts) → `prepare_*` + wallet sign + `send_raw_transaction`.  
+3. **Testnet only:** optional per-call ephemeral `privateKey` (strict `0x` + 64 hex).  
+4. Secrets redacted from errors. See [SECURITY.md](./SECURITY.md).
 
 ## Tools
 

@@ -11,7 +11,13 @@
  *
  * Binding periods are only 10s or 60s; compile's longer window (default 5/10min)
  * uses Cache + isolate.
+ *
+ * Actor key: optional X-Kaspa-Demo-Key (stable behind NAT) else CF-Connecting-IP.
+ * Spoofable X-Forwarded-For is NEVER trusted. Demo keys still share a secondary
+ * per-IP ceiling so rotating keys cannot bypass limits.
  */
+
+import { MAX_DEMO_KEY_CHARS } from "./limits.js";
 
 export type RateLimitEnv = {
   RATE_LIMIT_ENABLED?: string;
@@ -19,6 +25,9 @@ export type RateLimitEnv = {
   RATE_LIMIT_REQUESTS_PERIOD_SEC?: string;
   RATE_LIMIT_COMPILE?: string;
   RATE_LIMIT_COMPILE_PERIOD_SEC?: string;
+  /** Secondary ceiling per real IP when a demo key is used (default 180/min). */
+  RATE_LIMIT_IP_CEILING?: string;
+  RATE_LIMIT_IP_CEILING_PERIOD_SEC?: string;
   REQUEST_RATE_LIMITER?: { limit: (opts: { key: string }) => Promise<{ success: boolean }> };
   COMPILE_RATE_LIMITER?: { limit: (opts: { key: string }) => Promise<{ success: boolean }> };
 };
@@ -72,8 +81,6 @@ async function cacheAllow(
     const cachesApi = (globalThis as any).caches;
     if (!cachesApi?.default) return { ok: true, retryAfterSec: 0 };
     const cache = cachesApi.default as Cache;
-    // Sliding window (not wall-clock buckets) so a burst that crosses a minute
-    // boundary still counts toward the same limit.
     const ck = new Request(`https://kaspa-mcp.rate-limit/v2/${encodeURIComponent(key)}`);
     const hit = await cache.match(ck);
     const now = Date.now();
@@ -111,10 +118,41 @@ export function _resetRateLimitStateForTests(): void {
   windows.clear();
 }
 
+async function enforceWindow(
+  prefix: string,
+  actor: string,
+  limit: number,
+  periodSec: number,
+  kind: "request" | "compile",
+  binding?: { limit: (opts: { key: string }) => Promise<{ success: boolean }> },
+  bindingPeriodOk?: boolean,
+): Promise<RateLimitResult> {
+  {
+    const r = isolateAllow(`${prefix}:${actor}`, limit, periodSec);
+    if (!r.ok) {
+      return { ok: false, kind, retryAfterSec: r.retryAfterSec, message: SELF_HOST_HINT };
+    }
+  }
+  {
+    const r = await cacheAllow(`${prefix}:${actor}`, limit, periodSec);
+    if (!r.ok) {
+      return { ok: false, kind, retryAfterSec: r.retryAfterSec, message: SELF_HOST_HINT };
+    }
+  }
+  if (binding && bindingPeriodOk) {
+    const { success } = await binding.limit({ key: `${prefix}:${actor}` });
+    if (!success) {
+      return { ok: false, kind, retryAfterSec: periodSec, message: SELF_HOST_HINT };
+    }
+  }
+  return { ok: true };
+}
+
 export async function checkRateLimit(
   env: RateLimitEnv,
-  ip: string,
+  actor: string,
   isCompile: boolean,
+  realIp?: string,
 ): Promise<RateLimitResult> {
   if (!rateLimitEnabled(env)) return { ok: true };
 
@@ -122,73 +160,63 @@ export async function checkRateLimit(
   const reqPeriod = parsePositiveInt(env.RATE_LIMIT_REQUESTS_PERIOD_SEC, 60);
   const compileLimit = parsePositiveInt(env.RATE_LIMIT_COMPILE, 5);
   const compilePeriod = parsePositiveInt(env.RATE_LIMIT_COMPILE_PERIOD_SEC, 600);
+  const ipCeiling = parsePositiveInt(env.RATE_LIMIT_IP_CEILING, 180);
+  const ipCeilingPeriod = parsePositiveInt(env.RATE_LIMIT_IP_CEILING_PERIOD_SEC, 60);
 
-  const actor = ip || "unknown";
+  const key = actor || "unknown";
 
-  // 1) Isolate window
-  {
-    const r = isolateAllow(`req:${actor}`, reqLimit, reqPeriod);
-    if (!r.ok) {
-      return { ok: false, kind: "request", retryAfterSec: r.retryAfterSec, message: SELF_HOST_HINT };
-    }
+  // Secondary per-IP ceiling when the actor is a demo key (stops key rotation bypass).
+  if (key.startsWith("demo:") && realIp && realIp !== "unknown") {
+    const ceiling = await enforceWindow(
+      "ipceil",
+      realIp,
+      ipCeiling,
+      ipCeilingPeriod,
+      "request",
+    );
+    if (!ceiling.ok) return ceiling;
   }
 
-  // 2) Cache API (cross-request in colo)
-  {
-    const r = await cacheAllow(`req:${actor}`, reqLimit, reqPeriod);
-    if (!r.ok) {
-      return { ok: false, kind: "request", retryAfterSec: r.retryAfterSec, message: SELF_HOST_HINT };
-    }
-  }
-
-  // 3) Rate Limiting binding (distributed approximate floor)
-  if (env.REQUEST_RATE_LIMITER && (reqPeriod === 10 || reqPeriod === 60)) {
-    const { success } = await env.REQUEST_RATE_LIMITER.limit({ key: `req:${actor}` });
-    if (!success) {
-      return { ok: false, kind: "request", retryAfterSec: reqPeriod, message: SELF_HOST_HINT };
-    }
-  }
+  const req = await enforceWindow(
+    "req",
+    key,
+    reqLimit,
+    reqPeriod,
+    "request",
+    env.REQUEST_RATE_LIMITER,
+    reqPeriod === 10 || reqPeriod === 60,
+  );
+  if (!req.ok) return req;
 
   if (!isCompile) return { ok: true };
 
+  // Compile binding is a 1/min floor; longer window via isolate+cache below.
   if (env.COMPILE_RATE_LIMITER) {
-    const { success } = await env.COMPILE_RATE_LIMITER.limit({ key: `compile:${actor}` });
+    const { success } = await env.COMPILE_RATE_LIMITER.limit({ key: `compile:${key}` });
     if (!success) {
       return { ok: false, kind: "compile", retryAfterSec: 60, message: SELF_HOST_HINT };
     }
   }
 
-  {
-    const r = isolateAllow(`compile:${actor}`, compileLimit, compilePeriod);
-    if (!r.ok) {
-      return { ok: false, kind: "compile", retryAfterSec: r.retryAfterSec, message: SELF_HOST_HINT };
-    }
-  }
-  {
-    const r = await cacheAllow(`compile:${actor}`, compileLimit, compilePeriod);
-    if (!r.ok) {
-      return { ok: false, kind: "compile", retryAfterSec: r.retryAfterSec, message: SELF_HOST_HINT };
-    }
-  }
-
-  return { ok: true };
+  return enforceWindow("compile", key, compileLimit, compilePeriod, "compile");
 }
 
+/**
+ * Trusted client IP. Cloudflare sets CF-Connecting-IP; client-spoofable
+ * X-Forwarded-For is intentionally ignored.
+ */
 export function clientIp(request: Request): string {
-  return (
-    request.headers.get("CF-Connecting-IP") ||
-    request.headers.get("X-Forwarded-For")?.split(",")[0]?.trim() ||
-    "unknown"
-  );
+  return request.headers.get("CF-Connecting-IP")?.trim() || "unknown";
 }
 
 /**
  * Rate-limit actor key. Prefers optional X-Kaspa-Demo-Key (stable behind NAT /
- * rotating egress) then CF-Connecting-IP.
+ * rotating egress) then CF-Connecting-IP. Demo keys are still capped by a
+ * secondary per-IP ceiling in checkRateLimit.
  */
 export function rateLimitKey(request: Request): string {
   const demo = request.headers.get("X-Kaspa-Demo-Key")?.trim();
-  if (demo && demo.length <= 128) return `demo:${demo}`;
+  if (demo && demo.length > 0 && demo.length <= MAX_DEMO_KEY_CHARS) return `demo:${demo}`;
   return clientIp(request);
 }
 

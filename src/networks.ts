@@ -16,7 +16,7 @@ export const NETWORKS: Record<string, NetworkInfo> = {
     isTestnet: true,
     chainId: 167012,
     rpcUrl: process.env.LOCAL_ANVIL_RPC ?? "http://127.0.0.1:8545",
-        nativeCurrency: { name: "Demo KAS", symbol: "KAS", decimals: 18 },
+    nativeCurrency: { name: "Demo KAS", symbol: "KAS", decimals: 18 },
     faucetNotes: "Anvil prefunded accounts — $0 local demo only. Not a public network.",
     docsUrl: "https://book.getfoundry.sh/anvil/",
     maturity: "experimental",

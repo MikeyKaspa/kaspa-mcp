@@ -13,6 +13,7 @@
  * with pre-built bytecode are unaffected. Local Node compile stays offline.
  */
 import type { CompileResult } from "../types.js";
+import { assertSourceSize } from "../limits.js";
 
 export type SolcLike = {
   compile(input: string): string;
@@ -187,8 +188,33 @@ export async function compileSolidityAsync(
   source: string,
   options?: { contractName?: string },
 ): Promise<CompileResult> {
-  const solc = await loadSolc();
-  return compileWithSolc(solc, source, options);
+  assertSourceSize(source);
+  try {
+    const solc = await loadSolc();
+    return compileWithSolc(solc, source, options);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/Code generation from strings disallowed/i.test(msg) || /Disallowed operation/i.test(msg)) {
+      throw new Error(
+        "compile_solidity cannot evaluate solc on this Cloudflare Worker request " +
+          "(Workers block new Function after startup). Fix: self-host with `npm start` " +
+          "(local solc), or pass bytecode+abi to prepare_deploy / deploy_contract. " +
+          "The shared demo preloads solc at isolate startup when possible.",
+      );
+    }
+    throw e;
+  }
+}
+
+/** Best-effort Worker startup preload so new Function runs in the allowed startup phase. */
+export async function preloadSolcAtStartup(): Promise<{ ok: boolean; detail: string }> {
+  try {
+    await loadSolc();
+    return { ok: true, detail: cached ? `solc ready (${cached.version()})` : "solc ready" };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, detail: msg };
+  }
 }
 
 /**

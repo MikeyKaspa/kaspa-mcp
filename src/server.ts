@@ -3,8 +3,17 @@ import { z } from "zod";
 import { getNetwork, listNetworks, DEFAULT_EVM_TESTNET, NETWORKS } from "./networks.js";
 import { backendFor } from "./backends/registry.js";
 import { compileSolidityAsync } from "./backends/compile.js";
-import { SAFETY_BANNER, SafetyError, redactSecrets } from "./safety.js";
+import { SAFETY_BANNER, SafetyError, normalizeTestnetPrivateKey, redactSecrets } from "./safety.js";
 import type { CompileResult, TextJson } from "./types.js";
+import {
+  MAX_ABI_ITEMS,
+  MAX_CACHE_KEY_CHARS,
+  MAX_CALL_ARGS,
+  MAX_COMPILE_CACHE,
+  MAX_CTOR_ARGS,
+  assertRawTxShape,
+  assertSourceSize,
+} from "./limits.js";
 
 function ok(data: unknown): TextJson {
   return {
@@ -17,6 +26,36 @@ function err(e: unknown): TextJson {
 }
 
 const compiledCache = new Map<string, CompileResult>();
+
+function cacheCompiled(key: string, compiled: CompileResult): void {
+  if (key.length > MAX_CACHE_KEY_CHARS) {
+    throw new Error(`cacheKey exceeds ${MAX_CACHE_KEY_CHARS} characters`);
+  }
+  if (compiledCache.size >= MAX_COMPILE_CACHE && !compiledCache.has(key)) {
+    const oldest = compiledCache.keys().next().value;
+    if (oldest !== undefined) compiledCache.delete(oldest);
+  }
+  compiledCache.set(key, compiled);
+}
+
+function compiledFromBytecode(args: {
+  bytecode?: string;
+  abi?: unknown[];
+  contractName?: string;
+}): CompileResult | undefined {
+  if (!args.bytecode || !args.abi) return undefined;
+  if (args.abi.length > MAX_ABI_ITEMS) throw new Error(`abi exceeds ${MAX_ABI_ITEMS} items`);
+  const bc = args.bytecode.trim();
+  if (!/^0x[0-9a-fA-F]*$/.test(bc) || bc.length < 4 || bc.length % 2 !== 0) {
+    throw new Error("bytecode must be 0x-prefixed even-length hex");
+  }
+  return {
+    contractName: args.contractName ?? "Contract",
+    abi: args.abi,
+    bytecode: bc as `0x${string}`,
+    compiler: "precompiled",
+  };
+}
 
 export function createKaspaMcpServer(): McpServer {
   const server = new McpServer({
@@ -116,9 +155,10 @@ export function createKaspaMcpServer(): McpServer {
     },
     async ({ source, contractName, cacheKey }) => {
       try {
+        assertSourceSize(source);
         const compiled = await compileSolidityAsync(source, { contractName });
         const key = cacheKey ?? compiled.contractName;
-        compiledCache.set(key, compiled);
+        cacheCompiled(key, compiled);
         return ok({ ...compiled, cacheKey: key, safety: SAFETY_BANNER });
       } catch (e) {
         return err(e);
@@ -130,12 +170,14 @@ export function createKaspaMcpServer(): McpServer {
     "deploy_contract",
     {
       description:
-        "Deploy compiled Solidity to an EVM Kaspa network. TESTNET: optional ephemeral privateKey (never stored). MAINNET: rejected — use prepare_deploy + wallet sign + send_raw_transaction.",
+        "Deploy compiled Solidity to an EVM Kaspa network. TESTNET: optional ephemeral privateKey (never stored). MAINNET: rejected — use prepare_deploy + wallet sign + send_raw_transaction. Prefer source/cacheKey, or pass bytecode+abi (Worker-safe when solc eval is unavailable). signedRawTx alone broadcasts without compiling.",
       inputSchema: {
         network: z.string().default(DEFAULT_EVM_TESTNET),
-        source: z.string().optional().describe("Solidity source (compiled if cacheKey not set)"),
+        source: z.string().optional().describe("Solidity source (compiled if cacheKey/bytecode not set)"),
         cacheKey: z.string().optional(),
         contractName: z.string().optional(),
+        bytecode: z.string().optional().describe("Precompiled creation bytecode (0x-hex)"),
+        abi: z.array(z.unknown()).optional().describe("ABI JSON array paired with bytecode"),
         constructorArgs: z.array(z.unknown()).optional(),
         privateKey: z
           .string()
@@ -147,23 +189,50 @@ export function createKaspaMcpServer(): McpServer {
     async (args) => {
       try {
         const network = getNetwork(args.network);
+        // Reject mainnet keys before any compile / RPC work.
+        const privateKey = normalizeTestnetPrivateKey(network, args.privateKey);
+        if (args.constructorArgs && args.constructorArgs.length > MAX_CTOR_ARGS) {
+          throw new Error(`constructorArgs exceeds ${MAX_CTOR_ARGS} items`);
+        }
+        if (args.signedRawTx) assertRawTxShape(args.signedRawTx);
+
         const backend = backendFor(network);
-        if (!backend.deploy || !backend.compile) {
+        if (!backend.deploy) {
+          throw new SafetyError(`Network ${network.id} does not support EVM deploy`);
+        }
+
+        // signedRawTx path: broadcast only (no compile required).
+        if (args.signedRawTx && !args.source && !args.cacheKey && !args.bytecode) {
+          if (!backend.sendRawTransaction) throw new SafetyError("send_raw_transaction not supported");
+          const sent = await backend.sendRawTransaction(network, args.signedRawTx.trim());
+          return ok({
+            safety: SAFETY_BANNER,
+            txHash: sent.hash,
+            explorerTxUrl: sent.explorerUrl,
+            networkId: network.id,
+            note: "Broadcast signedRawTx. Contract address is in the receipt — use get_tx.",
+          });
+        }
+
+        if (!backend.compile && !args.bytecode) {
           throw new SafetyError(`Network ${network.id} does not support EVM deploy`);
         }
         let compiled: CompileResult | undefined = args.cacheKey
           ? compiledCache.get(args.cacheKey)
           : undefined;
+        if (!compiled) compiled = compiledFromBytecode(args);
         if (!compiled && args.source) {
+          assertSourceSize(args.source);
+          if (!backend.compile) throw new SafetyError(`Network ${network.id} cannot compile`);
           compiled = await backend.compile(network, args.source, {
             contractName: args.contractName,
           });
         }
-        if (!compiled) throw new Error("Provide source or a valid cacheKey from compile_solidity");
+        if (!compiled) throw new Error("Provide source, bytecode+abi, or a valid cacheKey from compile_solidity");
         const result = await backend.deploy(network, compiled, {
           ctorArgs: args.constructorArgs,
-          privateKey: args.privateKey,
-          signedRawTx: args.signedRawTx,
+          privateKey,
+          signedRawTx: args.signedRawTx?.trim(),
         });
         return ok({ safety: SAFETY_BANNER, ...result });
       } catch (e) {
@@ -175,12 +244,15 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "prepare_deploy",
     {
-      description: "Build an unsigned deploy transaction (safe on mainnet). User signs externally.",
+      description:
+        "Build an unsigned deploy transaction (safe on mainnet). User signs externally. Accepts source, cacheKey, or bytecode+abi.",
       inputSchema: {
         network: z.string(),
         source: z.string().optional(),
         cacheKey: z.string().optional(),
         contractName: z.string().optional(),
+        bytecode: z.string().optional(),
+        abi: z.array(z.unknown()).optional(),
         constructorArgs: z.array(z.unknown()).optional(),
         fromAddress: z.string().optional(),
       },
@@ -189,16 +261,22 @@ export function createKaspaMcpServer(): McpServer {
       try {
         const network = getNetwork(args.network);
         const backend = backendFor(network);
-        if (!backend.prepareDeploy || !backend.compile) {
+        if (!backend.prepareDeploy) {
           throw new SafetyError(`Network ${network.id} cannot prepare EVM deploys`);
         }
+        if (args.constructorArgs && args.constructorArgs.length > MAX_CTOR_ARGS) {
+          throw new Error(`constructorArgs exceeds ${MAX_CTOR_ARGS} items`);
+        }
         let compiled = args.cacheKey ? compiledCache.get(args.cacheKey) : undefined;
+        if (!compiled) compiled = compiledFromBytecode(args);
         if (!compiled && args.source) {
+          assertSourceSize(args.source);
+          if (!backend.compile) throw new SafetyError(`Network ${network.id} cannot compile`);
           compiled = await backend.compile(network, args.source, {
             contractName: args.contractName,
           });
         }
-        if (!compiled) throw new Error("Provide source or cacheKey");
+        if (!compiled) throw new Error("Provide source, bytecode+abi, or cacheKey");
         const prepared = await backend.prepareDeploy(
           network,
           compiled,
@@ -226,6 +304,8 @@ export function createKaspaMcpServer(): McpServer {
     },
     async ({ network: nid, address, abi, functionName, args }) => {
       try {
+        if (abi.length > MAX_ABI_ITEMS) throw new Error(`abi exceeds ${MAX_ABI_ITEMS} items`);
+        if (args && args.length > MAX_CALL_ARGS) throw new Error(`args exceeds ${MAX_CALL_ARGS} items`);
         const network = getNetwork(nid);
         const backend = backendFor(network);
         if (!backend.readContract) throw new SafetyError("read_contract not supported on this network");
@@ -252,6 +332,8 @@ export function createKaspaMcpServer(): McpServer {
     },
     async (a) => {
       try {
+        if (a.abi.length > MAX_ABI_ITEMS) throw new Error(`abi exceeds ${MAX_ABI_ITEMS} items`);
+        if (a.args && a.args.length > MAX_CALL_ARGS) throw new Error(`args exceeds ${MAX_CALL_ARGS} items`);
         const network = getNetwork(a.network);
         const backend = backendFor(network);
         if (!backend.prepareCall) throw new SafetyError("prepare_call not supported");
@@ -281,10 +363,11 @@ export function createKaspaMcpServer(): McpServer {
     },
     async ({ network: nid, rawTx }) => {
       try {
+        assertRawTxShape(rawTx);
         const network = getNetwork(nid);
         const backend = backendFor(network);
         if (!backend.sendRawTransaction) throw new SafetyError("send_raw_transaction not supported");
-        return ok(await backend.sendRawTransaction(network, rawTx));
+        return ok(await backend.sendRawTransaction(network, rawTx.trim()));
       } catch (e) {
         return err(e);
       }

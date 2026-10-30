@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   _resetRateLimitStateForTests,
   checkRateLimit,
+  clientIp,
   peekMcpRequest,
   rateLimitEnabled,
   rateLimitKey,
@@ -65,7 +66,6 @@ describe("checkRateLimit isolate windows", () => {
       expect(blocked.kind).toBe("request");
       expect(blocked.message).toMatch(/Self-host/i);
     }
-    // Other IP still ok
     expect((await checkRateLimit(env, "8.8.8.8", false)).ok).toBe(true);
   });
 
@@ -83,9 +83,25 @@ describe("checkRateLimit isolate windows", () => {
     expect(blocked.ok).toBe(false);
     if (!blocked.ok) expect(blocked.kind).toBe("compile");
   });
+
+  it("applies secondary IP ceiling when demo keys rotate", async () => {
+    const env: RateLimitEnv = {
+      RATE_LIMIT_ENABLED: "true",
+      RATE_LIMIT_REQUESTS: "100",
+      RATE_LIMIT_REQUESTS_PERIOD_SEC: "60",
+      RATE_LIMIT_IP_CEILING: "3",
+      RATE_LIMIT_IP_CEILING_PERIOD_SEC: "60",
+    };
+    const ip = "5.5.5.5";
+    expect((await checkRateLimit(env, "demo:a", false, ip)).ok).toBe(true);
+    expect((await checkRateLimit(env, "demo:b", false, ip)).ok).toBe(true);
+    expect((await checkRateLimit(env, "demo:c", false, ip)).ok).toBe(true);
+    const blocked = await checkRateLimit(env, "demo:d", false, ip);
+    expect(blocked.ok).toBe(false);
+  });
 });
 
-describe("rateLimitKey", () => {
+describe("rateLimitKey / clientIp", () => {
   it("prefers X-Kaspa-Demo-Key", () => {
     const req = new Request("https://example/mcp", {
       headers: { "X-Kaspa-Demo-Key": "abc", "CF-Connecting-IP": "1.1.1.1" },
@@ -97,5 +113,18 @@ describe("rateLimitKey", () => {
       headers: { "CF-Connecting-IP": "1.1.1.1" },
     });
     expect(rateLimitKey(req)).toBe("1.1.1.1");
+  });
+  it("ignores spoofed X-Forwarded-For", () => {
+    const req = new Request("https://example/mcp", {
+      headers: { "X-Forwarded-For": "9.9.9.9", "CF-Connecting-IP": "1.1.1.1" },
+    });
+    expect(clientIp(req)).toBe("1.1.1.1");
+    expect(rateLimitKey(req)).toBe("1.1.1.1");
+  });
+  it("does not trust X-Forwarded-For alone", () => {
+    const req = new Request("https://example/mcp", {
+      headers: { "X-Forwarded-For": "9.9.9.9" },
+    });
+    expect(clientIp(req)).toBe("unknown");
   });
 });

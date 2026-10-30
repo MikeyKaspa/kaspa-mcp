@@ -7,6 +7,7 @@
 import { createServer } from "node:http";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { createKaspaMcpServer } from "./server.js";
+import { MAX_MCP_BODY_BYTES } from "./limits.js";
 
 const PORT = Number(process.env.PORT ?? 8787);
 const HOST = process.env.HOST ?? "127.0.0.1";
@@ -36,7 +37,17 @@ const httpServer = createServer(async (req, res) => {
     }
 
     const chunks: Buffer[] = [];
-    for await (const chunk of req) chunks.push(chunk as Buffer);
+    let total = 0;
+    for await (const chunk of req) {
+      const buf = chunk as Buffer;
+      total += buf.length;
+      if (total > MAX_MCP_BODY_BYTES) {
+        res.writeHead(413, { "content-type": "application/json" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Request body too large" } }));
+        return;
+      }
+      chunks.push(buf);
+    }
     const body = Buffer.concat(chunks);
 
     const headers = new Headers();
