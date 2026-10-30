@@ -1,0 +1,38 @@
+# Dependencies & build
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Cloudflare / Wrangler local
+.wrangler/
+.dev.vars
+.mf/
+
+# Secrets & env
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+e2e-wallet.json
+*-wallet.json
+*.privateKey
+secrets/
+.kaspa-operator/
+
+# Operator / local-only scripts (never publish)
+scripts/deploy-tipjar-mainnet.mjs
+scripts/*-mainnet.*
+
+# Logs & OS
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+.vscode/
+*.swp

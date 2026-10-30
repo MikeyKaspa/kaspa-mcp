@@ -1,0 +1,62 @@
+{
+  "name": "kaspa-mcp",
+  "version": "0.1.0",
+  "description": "Public open-source MCP connector for building and deploying smart contracts on Kaspa ecosystem EVM networks (Kasplex, Igra) plus Kaspa L1 reads.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Kaspa community",
+  "keywords": [
+    "kaspa",
+    "kasplex",
+    "igra",
+    "mcp",
+    "model-context-protocol",
+    "smart-contracts",
+    "solidity",
+    "evm"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MikeyKaspa/kaspa-mcp"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./server": "./dist/server.js"
+  },
+  "bin": {
+    "kaspa-mcp": "./dist/node-server.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "tsx src/node-server.ts",
+    "dev": "tsx watch src/node-server.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "e2e:testnet": "tsx scripts/e2e-testnet.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "ethers": "^6.17.0",
+    "solc": "^0.8.28",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.0.0",
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0",
+    "wrangler": "^4.0.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "workerd@1.20261023.1": true
+  },
+  "homepage": "https://github.com/MikeyKaspa/kaspa-mcp"
+}

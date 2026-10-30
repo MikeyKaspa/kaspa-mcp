@@ -1,0 +1,36 @@
+# Cloudflare Workers — free tier only (workers.dev). No custom domains / paid plans.
+name = "kaspa-mcp"
+main = "src/worker.ts"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[vars]
+# No secrets required for read-only + unsigned-tx mode.
+MCP_PUBLIC = "true"
+# Shared demo: enable per-IP limits. Self-hosters: omit or set false (off by default in code).
+RATE_LIMIT_ENABLED = "true"
+RATE_LIMIT_REQUESTS = "60"
+RATE_LIMIT_REQUESTS_PERIOD_SEC = "60"
+RATE_LIMIT_COMPILE = "5"
+RATE_LIMIT_COMPILE_PERIOD_SEC = "600"
+
+# Free Workers Rate Limiting bindings (no extra charge; periods must be 10 or 60).
+# General: 60 req / 60s per IP (per Cloudflare location, approximate).
+[[ratelimits]]
+name = "REQUEST_RATE_LIMITER"
+namespace_id = "1001"
+[ratelimits.simple]
+limit = 60
+period = 60
+
+# Compile floor: 1 / 60s per IP. Longer "5 per 10 min" is enforced via Cache API + isolate.
+[[ratelimits]]
+name = "COMPILE_RATE_LIMITER"
+namespace_id = "1002"
+[ratelimits.simple]
+limit = 1
+period = 60
+
+# solc-js (~11 MB) is NOT bundled. compile_solidity loads soljson from
+# https://binaries.soliditylang.org at runtime on Workers (see src/backends/compile.ts).
