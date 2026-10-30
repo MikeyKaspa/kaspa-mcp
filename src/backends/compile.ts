@@ -206,17 +206,6 @@ export async function compileSolidityAsync(
   }
 }
 
-/** Best-effort Worker startup preload so new Function runs in the allowed startup phase. */
-export async function preloadSolcAtStartup(): Promise<{ ok: boolean; detail: string }> {
-  try {
-    await loadSolc();
-    return { ok: true, detail: cached ? `solc ready (${cached.version()})` : "solc ready" };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, detail: msg };
-  }
-}
-
 /**
  * Sync compile for Node tests / scripts that already have a SolcLike instance.
  * Do not call from the Worker graph — use compileSolidityAsync instead.

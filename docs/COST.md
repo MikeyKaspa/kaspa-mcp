@@ -32,3 +32,5 @@ Enabled only when `RATE_LIMIT_ENABLED=true` (set on the shared Worker; **off by 
 - 60 MCP requests / minute / IP (Cache API + Workers Rate Limiting binding, free)
 - 5 `compile_solidity` / 10 minutes / IP (Cache API + isolate) + 1/min binding floor
 - Over limit → JSON-RPC `-32000` + HTTP 429 asking users to self-host
+
+**Workers demo:** `compile_solidity` is unavailable (Cloudflare blocks eval). Self-host with `npm start` for compile, or pass `bytecode`+`abi` on the shared demo.
