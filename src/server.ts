@@ -18,6 +18,8 @@ import { listTemplates, getTemplate } from "./l1/templates.js";
 import { loadSilArtifact, entryOf } from "./l1/artifact.js";
 import { deriveP2shAddress } from "./l1/p2sh.js";
 import { prepareFund, prepareSpend, KASWARE_HINT } from "./l1/prepare.js";
+import { L1_UNAUDITED_WARNING } from "./l1/kaspa-sdk.js";
+import { attachTapToApprove } from "./sign/attach.js";
 import { compileSilverscript, isSilvercAvailable, silvercCompileHint } from "./l1/compile.js";
 import { coerceBytecode } from "./l1/artifact.js";
 
@@ -290,7 +292,19 @@ export function createKaspaMcpServer(): McpServer {
           args.constructorArgs,
           args.fromAddress,
         );
-        return ok({ safety: SAFETY_BANNER, prepared, abi: compiled.abi, contractName: compiled.contractName });
+        const tapToApprove = await attachTapToApprove("evm-deploy", network.id, {
+          evm: {
+            chainId: prepared.chainId ?? network.chainId ?? 0,
+            to: prepared.to ?? null,
+            data: prepared.data,
+            value: prepared.value ?? "0",
+            gasLimit: prepared.gasLimit,
+            gasPrice: prepared.gasPrice,
+            nonce: prepared.nonce,
+          },
+          meta: { contractName: compiled.contractName },
+        });
+        return ok({ safety: SAFETY_BANNER, prepared, abi: compiled.abi, contractName: compiled.contractName, tapToApprove });
       } catch (e) {
         return err(e);
       }
@@ -344,18 +358,27 @@ export function createKaspaMcpServer(): McpServer {
         const network = getNetwork(a.network);
         const backend = backendFor(network);
         if (!backend.prepareCall) throw new SafetyError("prepare_call not supported");
-        return ok({
-          safety: SAFETY_BANNER,
-          prepared: await backend.prepareCall(
-            network,
-            a.address,
-            a.abi,
-            a.functionName,
-            a.args ?? [],
-            a.valueWei ?? "0",
-            a.fromAddress,
-          ),
+        const prepared = await backend.prepareCall(
+          network,
+          a.address,
+          a.abi,
+          a.functionName,
+          a.args ?? [],
+          a.valueWei ?? "0",
+          a.fromAddress,
+        );
+        const tapToApprove = await attachTapToApprove("evm-call", network.id, {
+          evm: {
+            chainId: prepared.chainId ?? network.chainId ?? 0,
+            to: prepared.to ?? a.address,
+            data: prepared.data,
+            value: prepared.value ?? a.valueWei ?? "0",
+            gasLimit: prepared.gasLimit,
+            gasPrice: prepared.gasPrice,
+            nonce: prepared.nonce,
+          },
         });
+        return ok({ safety: SAFETY_BANNER, prepared, tapToApprove });
       } catch (e) {
         return err(e);
       }
@@ -509,7 +532,7 @@ export function createKaspaMcpServer(): McpServer {
     "silverscript_templates",
     {
       description:
-        "List L1 SilverScript templates (TipJar, TimeoutVault, Escrow) with source + pinned example artifacts (silverc v1.0.0). Shared demo: use these or paste your own artifact — no in-Worker compile.",
+        "List L1 SilverScript templates (TipJar, TimeoutVault, Escrow) with source + pinned example artifacts (silverc v1.0.0). Shared demo: use these or paste your own artifact — no in-Worker compile. UNAUDITED / use at own risk.",
       inputSchema: { id: z.string().optional().describe("Optional template id for full detail") },
     },
     async ({ id }) => {
@@ -545,6 +568,7 @@ export function createKaspaMcpServer(): McpServer {
             entries: Object.keys(t.loadedExample.entries),
           })),
           kcc20: "Upcoming — not shipped yet.",
+          warning: L1_UNAUDITED_WARNING,
           compileHint: silvercCompileHint(),
           walletHint: KASWARE_HINT,
         });
@@ -557,7 +581,7 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "silverscript_load_artifact",
     {
-      description: "Validate a SilAbiArtifact JSON (from silverc or a pinned template) and return bytecode, entries, template hash.",
+      description: "Validate a SilAbiArtifact JSON (from silverc or a pinned template) and return bytecode, entries, template hash. UNAUDITED / use at own risk.",
       inputSchema: {
         artifact: z.unknown().optional(),
         templateId: z.string().optional().describe("tipjar | timeout_vault | escrow"),
@@ -588,7 +612,7 @@ export function createKaspaMcpServer(): McpServer {
     "silverscript_compile",
     {
       description:
-        "SELF-HOST ONLY: compile .sil with silverc binary (SILVERC_PATH). Disabled on Cloudflare Workers — use templates or paste artifact.",
+        "SELF-HOST ONLY: compile .sil with silverc binary (SILVERC_PATH). Disabled on Cloudflare Workers — use templates or paste artifact. UNAUDITED / use at own risk.",
       inputSchema: {
         source: z.string(),
         constructorArgs: z.array(z.unknown()).optional(),
@@ -622,7 +646,7 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "l1_derive_p2sh",
     {
-      description: "Derive Kaspa P2SH address from SilverScript redeem bytecode (testnet-10 or mainnet id). Requires kaspa-wasm (Node self-host); not available on Cloudflare Workers.",
+      description: "Derive Kaspa P2SH address from SilverScript redeem bytecode (testnet-10 or mainnet id). Requires kaspa-wasm (Node self-host); not on Cloudflare Workers. UNAUDITED / use at own risk.",
       inputSchema: {
         bytecodeHex: z.string().optional(),
         artifact: z.unknown().optional(),
@@ -647,7 +671,7 @@ export function createKaspaMcpServer(): McpServer {
         const net =
           network.id.includes("mainnet") && !network.isTestnet ? "mainnet" : "testnet-10";
         const derived = await deriveP2shAddress(bc, net);
-        return ok({ safety: SAFETY_BANNER, networkId: network.id, ...derived, walletHint: KASWARE_HINT });
+        return ok({ safety: SAFETY_BANNER, warning: L1_UNAUDITED_WARNING, networkId: network.id, ...derived, walletHint: KASWARE_HINT });
       } catch (e) {
         return err(e);
       }
@@ -658,7 +682,7 @@ export function createKaspaMcpServer(): McpServer {
     "l1_prepare_fund",
     {
       description:
-        "Build a complete unsigned fund tx (UTXO select + fees + change) as KasWare Safe JSON for signPskt→pushTx (or sendKaspa to the P2SH). Mainnet gated. Min 0.1 KAS. Requires kaspa-wasm (Node); Workers return a clear self-host error.",
+        "Build unsigned fund tx (UTXO select + fees + change) as KasWare SafeJSON for signPskt→pushTx (or sendKaspa to P2SH). Mainnet prepare-only when KASPA_L1_MAINNET_WRITES=1 (wallet signs; keys refused). Min 0.1 KAS. Requires kaspa-wasm (Node self-host); Workers cannot load Node wasm. UNAUDITED / use at own risk.",
       inputSchema: {
         network: z.string().default("kaspa-l1-testnet-10"),
         fromAddress: z.string(),
@@ -685,7 +709,12 @@ export function createKaspaMcpServer(): McpServer {
           amountSompi: BigInt(a.amountSompi),
           priorityFeeSompi: a.priorityFeeSompi != null ? BigInt(a.priorityFeeSompi) : undefined,
         });
-        return ok({ safety: SAFETY_BANNER, ...prepared });
+        const tapToApprove = await attachTapToApprove("l1-fund", network.id, {
+          safeJson: prepared.safeJson,
+          signInputs: prepared.kasware.signInputs,
+          meta: { p2shAddress: prepared.p2shAddress, templateId: a.templateId },
+        });
+        return ok({ safety: SAFETY_BANNER, ...prepared, tapToApprove });
       } catch (e) {
         return err(e);
       }
@@ -696,7 +725,7 @@ export function createKaspaMcpServer(): McpServer {
     "l1_prepare_spend",
     {
       description:
-        "Prepare spending a P2SH covenant UTXO via a SilverScript entry. Pass entry args; use null/\"$sig\"/\"$pk\" with testnet privateKey to auto-sign. Mainnet gated. KasWare PSKT first.",
+        "Prepare spending a P2SH covenant UTXO via a SilverScript entry. Pass entry args; null/\"$sig\"/\"$pk\" + testnet privateKey auto-fills unlock (TESTNET ONLY). Mainnet prepare-only when enabled: unsigned SafeJSON / pre-filled unlock for wallet pushTx — privateKey always rejected. Requires kaspa-wasm (Node). UNAUDITED / use at own risk.",
       inputSchema: {
         network: z.string().default("kaspa-l1-testnet-10"),
         entry: z.string(),
@@ -745,7 +774,13 @@ export function createKaspaMcpServer(): McpServer {
             scriptPublicKey: a.utxo.scriptPublicKey,
           },
         });
-        return ok({ safety: SAFETY_BANNER, ...prepared });
+        const tapToApprove = await attachTapToApprove("l1-spend", network.id, {
+          safeJson: prepared.safeJson,
+          signedSafeJson: prepared.signedSafeJson,
+          signInputs: prepared.kasware.signInputs,
+          meta: { p2shAddress: prepared.p2shAddress, entry: a.entry, templateId: a.templateId },
+        });
+        return ok({ safety: SAFETY_BANNER, ...prepared, tapToApprove });
       } catch (e) {
         return err(e);
       }
@@ -803,7 +838,7 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
         {
           uri: "kaspa-mcp://docs/safety",
           mimeType: "text/markdown",
-          text: `# Safety model\n\n${SAFETY_BANNER}\n\n- No key persistence\n- Mainnet private keys rejected\n- Testnet privateKey is per-request only\n- Prefer prepare_* + external wallet for anything of value\n`,
+          text: `# Safety model\n\n${SAFETY_BANNER}\n\n${L1_UNAUDITED_WARNING}\n\n- No key persistence\n- Mainnet private keys always rejected\n- Mainnet L1 = prepare unsigned SafeJSON only (wallet signs)\n- Testnet privateKey is per-request only\n- Prefer prepare_* + external wallet for anything of value\n`,
         },
       ],
     }),

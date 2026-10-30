@@ -8,6 +8,8 @@ workers_dev = true
 [vars]
 # No secrets required for read-only + unsigned-tx mode.
 MCP_PUBLIC = "true"
+# Prepare-only mainnet L1 (unsigned SafeJSON). Never accept mainnet keys.
+KASPA_L1_MAINNET_WRITES = "1"
 # Shared demo: enable per-IP limits. Self-hosters: omit or set false (off by default in code).
 RATE_LIMIT_ENABLED = "true"
 RATE_LIMIT_REQUESTS = "60"
@@ -36,3 +38,9 @@ period = 60
 
 # solc-js (~11 MB) is NOT bundled. compile_solidity loads soljson from
 # https://binaries.soliditylang.org at runtime on Workers (see src/backends/compile.ts).
+
+# Short-lived prepare→approve sessions (free KV). TTL set per-key (~15 min).
+[[kv_namespaces]]
+binding = "SIGN_SESSIONS"
+id = "dc99577f3ba4452499cf5150e54797a6"
+preview_id = "b62028ef832f476d9abb756013a32516"

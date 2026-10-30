@@ -18,7 +18,7 @@
  * (see KCC-20 docs: "signs only the open P2PK funding inputs"; covenant arg scripts
  * are assembled by the dApp). Testnet privateKey path fills the unlock for e2e.
  */
-import { loadKaspa, assertL1NetworkWritable } from "./kaspa-sdk.js";
+import { loadKaspa, assertL1NetworkWritable, L1_UNAUDITED_WARNING } from "./kaspa-sdk.js";
 import { buildEntryUnlock } from "./script.js";
 import type { LoadedArtifact } from "./artifact.js";
 import { entryOf } from "./artifact.js";
@@ -38,6 +38,7 @@ export const MIN_CHANGE_SOMPI = 100_000n;
 export const MIN_FUND_SOMPI = 10_000_000n; // 0.1 KAS
 
 export interface PrepareFundResult {
+  warning: string;
   mode: "unsigned_safe_json";
   networkId: string;
   kaspaNetwork: string;
@@ -61,6 +62,7 @@ export interface PrepareFundResult {
 }
 
 export interface PrepareSpendResult {
+  warning: string;
   mode: "unsigned_safe_json" | "signed_ready_for_pushTx";
   networkId: string;
   kaspaNetwork: string;
@@ -229,6 +231,7 @@ export async function prepareFund(opts: {
   const feeSompi = inSum - outSum;
 
   return {
+    warning: L1_UNAUDITED_WARNING,
     mode: "unsigned_safe_json",
     networkId: opts.network.id,
     kaspaNetwork: net,
@@ -367,6 +370,7 @@ export async function prepareSpend(opts: {
   }
 
   return {
+    warning: L1_UNAUDITED_WARNING,
     mode,
     networkId: opts.network.id,
     kaspaNetwork: net,

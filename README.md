@@ -4,7 +4,28 @@
 
 MIT · Non-custodial · Designed for **$0** (public RPCs + free testnet faucets).
 
+> ## ⚠️ UNAUDITED / USE AT YOUR OWN RISK
+>
+> **L1 SilverScript templates and prepare helpers are experimental and not security-audited.** Funding or spending covenants on mainnet can lose funds.  
+> **Mainnet mode is prepare-only:** tools return unsigned KasWare SafeJSON for **your wallet** to sign (`signPskt` → `pushTx`). This connector **never accepts or stores mainnet private keys**.  
+> Prefer **testnet-10** (`kaspatest:`) for all experiments. No warranty — you are solely responsible for any loss.
+>
+
+
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/MikeyKaspa/kaspa-mcp)
+
+
+## Tap to approve (one-tap signing)
+
+Every `l1_prepare_fund`, `l1_prepare_spend`, `prepare_deploy`, and `prepare_call` response includes `tapToApprove.url` (e.g. `https://…/sign/<id>`).
+
+1. Open the link on a phone or desktop with **KasWare** (L1) or an injected **EVM** wallet (Kasplex).
+2. The page loads the stored unsigned tx (KV, ~15 min TTL) and shows a summary **derived from the transaction bytes** (amounts, fee, outputs) — not from agent-provided prose.
+3. **Connect** → **Approve** → wallet popup signs → explorer link. The page never sees private keys.
+4. L1: KasWare `requestAccounts` → `signPskt` → `pushTx` (verified against KasWare extension source). Kastle `signAndBroadcastTx` / `signTx` when injected. Spends with a pre-filled SilverScript unlock use `pushTx` only.
+5. Strict CSP (`default-src 'none'; script-src 'self'`).
+
+**Mainnet** shows an **UNAUDITED / USE AT YOUR OWN RISK** banner. Prefer testnet-10.
 
 ## Shared demo: limits
 

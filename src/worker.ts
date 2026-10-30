@@ -1,11 +1,6 @@
 /**
- * Cloudflare Worker entry (Streamable HTTP).
+ * Cloudflare Worker entry (Streamable HTTP + /sign one-tap approve).
  * Free tier workers.dev only — no paid plans / custom domains from this project.
- *
- * solc-js is not bundled: Workers free plan cannot eval CDN soljson (no new Function
- * after startup; no async fetch in global scope to preload). Shared demo: use
- * bytecode+abi on prepare_deploy/deploy_contract, or self-host with `npm start`.
- * Rate limits via RATE_LIMIT_ENABLED + bindings (see wrangler.toml).
  */
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { createKaspaMcpServer } from "./server.js";
@@ -19,9 +14,16 @@ import {
   type RateLimitEnv,
 } from "./rate-limit.js";
 import { MAX_MCP_BODY_BYTES } from "./limits.js";
+import {
+  createKvSignStore,
+  handleSignHttp,
+  setSignContext,
+} from "./sign/index.js";
 
 export interface Env extends RateLimitEnv {
   MCP_PUBLIC?: string;
+  KASPA_L1_MAINNET_WRITES?: string;
+  SIGN_SESSIONS?: { put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>; get(key: string): Promise<string | null> };
 }
 
 const CORS_HEADERS: Record<string, string> = {
@@ -56,13 +58,31 @@ export default {
           rateLimit: rateLimitEnabled(env),
           compileOnWorker: false,
           silverscriptCompileOnWorker: false,
+          l1MainnetPrepare: env.KASPA_L1_MAINNET_WRITES === "1" || env.KASPA_L1_MAINNET_WRITES === "true",
+          signSessions: Boolean(env.SIGN_SESSIONS),
           compileHint:
-            "Workers: no solc eval; no silverc WASM. Use silverscript_templates / paste artifact / bytecode+abi. Self-host npm start for compile.",
+            "Workers: no solc eval; no silverc WASM. Use silverscript_templates / paste artifact / bytecode+abi. Self-host npm start for compile + L1 prepare (kaspa-wasm).",
         }),
       );
     }
+
+    // Sign store for this request (KV when bound)
+    if (env.SIGN_SESSIONS) {
+      setSignContext({
+        store: createKvSignStore(env.SIGN_SESSIONS),
+        publicBaseUrl: url.origin,
+      });
+    } else {
+      setSignContext(null);
+    }
+
+    if (env.SIGN_SESSIONS) {
+      const signRes = await handleSignHttp(request, createKvSignStore(env.SIGN_SESSIONS));
+      if (signRes) return withCors(signRes);
+    }
+
     if (url.pathname !== "/mcp") {
-      return withCors(new Response("Kaspa MCP — POST /mcp", { status: 404 }));
+      return withCors(new Response("Kaspa MCP — POST /mcp · GET /sign/<id>", { status: 404 }));
     }
 
     const bodyText =

@@ -80,7 +80,7 @@ describe("guards", () => {
     const { assertL1NetworkWritable } = await import("../src/l1/kaspa-sdk.js");
     const prev = process.env.KASPA_L1_MAINNET_WRITES;
     delete process.env.KASPA_L1_MAINNET_WRITES;
-    expect(() => assertL1NetworkWritable(false, "kaspa-l1-mainnet")).toThrow(/MAINNET_WRITES|gated/i);
+    expect(() => assertL1NetworkWritable(false, "kaspa-l1-mainnet")).toThrow(/MAINNET_WRITES|gated|prepare-only|prepare helpers/i);
     expect(() => assertL1NetworkWritable(true, "kaspa-l1-testnet-10")).not.toThrow();
     if (prev === undefined) delete process.env.KASPA_L1_MAINNET_WRITES;
     else process.env.KASPA_L1_MAINNET_WRITES = prev;
