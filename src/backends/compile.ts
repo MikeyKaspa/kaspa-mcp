@@ -196,10 +196,10 @@ export async function compileSolidityAsync(
     const msg = e instanceof Error ? e.message : String(e);
     if (/Code generation from strings disallowed/i.test(msg) || /Disallowed operation/i.test(msg)) {
       throw new Error(
-        "compile_solidity cannot evaluate solc on this Cloudflare Worker request " +
-          "(Workers block new Function after startup). Fix: self-host with `npm start` " +
-          "(local solc), or pass bytecode+abi to prepare_deploy / deploy_contract. " +
-          "The shared demo preloads solc at isolate startup when possible.",
+        "compile_solidity cannot run on Cloudflare Workers (eval/new Function blocked; " +
+          "solc CDN load is not possible on the free Worker runtime). " +
+          "Fix: self-host with `npm start` (local solc), or pass bytecode+abi to " +
+          "prepare_deploy / deploy_contract on the shared demo.",
       );
     }
     throw e;

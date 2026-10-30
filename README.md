@@ -17,7 +17,7 @@ A shared demo runs at `https://kaspa-mcp.kaspa-mcp.workers.dev/mcp` on a **dedic
 | **60 requests / min / actor** | Per IP, or per `X-Kaspa-Demo-Key` when set. |
 | **180 requests / min / IP** | Secondary ceiling so rotating demo keys cannot bypass limits. |
 | **5 compiles / 10 min / actor** | Tighter limit for `compile_solidity` (Cache API window + 1/min binding floor). |
-| **Worker compile** | Shared demo preloads solc at isolate startup when possible. If compile fails, self-host with `npm start` or pass `bytecode`+`abi` to `prepare_deploy` / `deploy_contract`. |
+| **Worker compile** | **Not available on the shared Workers demo** (Cloudflare blocks `eval`/`new Function`; solc cannot load). Self-host with `npm start` for compile, or pass `bytecode`+`abi` to `prepare_deploy` / `deploy_contract`. |
 
 Over the limit you get a JSON-RPC `-32000` / HTTP 429 asking you to **self-host**. Limits use Cloudflare’s trusted `CF-Connecting-IP` (not spoofable `X-Forwarded-For`), the free Rate Limiting binding, and a Cache API counter (per colo; approximate under multi-colo load). Optional header `X-Kaspa-Demo-Key` gives a stable bucket behind NAT, still capped by the per-IP ceiling. Anyone with real usage should: one-click Deploy button (or one `wrangler deploy`) to **your own free Cloudflare account** → your own 100k/day; or run locally with `npx` / `npm start` for **no shared limits**.
 

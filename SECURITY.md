@@ -17,4 +17,4 @@ Open a [GitHub issue](https://github.com/MikeyKaspa/kaspa-mcp/issues) with `secu
 
 - Rate limits use Cloudflare’s `CF-Connecting-IP` (not spoofable `X-Forwarded-For`).
 - Optional `X-Kaspa-Demo-Key` gives a stable bucket behind NAT, with a secondary per-IP ceiling so key rotation cannot bypass limits.
-- `compile_solidity` on Workers depends on solc preload at isolate startup; prefer self-hosting (`npm start`) for reliable compiles, or pass `bytecode` + `abi`.
+- `compile_solidity` does **not** run on the shared Cloudflare Worker (eval blocked). Prefer self-hosting (`npm start`) for compiles, or pass `bytecode` + `abi` to prepare/deploy tools.
