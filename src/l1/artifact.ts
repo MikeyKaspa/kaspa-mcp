@@ -44,6 +44,9 @@ export function loadSilArtifact(
   input: unknown,
   contractName?: string,
 ): LoadedArtifact {
+  if (input == null || typeof input !== "object") {
+    throw new Error("Not a SilAbiArtifact: pass artifact JSON (or use templateId on tools that support it)");
+  }
   const root = input as { artifact?: SilAbiArtifact } & SilAbiArtifact;
   const artifact: SilAbiArtifact = root.artifact?.contracts ? root.artifact : (root as SilAbiArtifact);
   if (!artifact || typeof artifact !== "object" || !artifact.contracts) {

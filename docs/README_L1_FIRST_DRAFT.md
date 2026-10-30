@@ -21,13 +21,13 @@ MIT · Non-custodial · Designed for **$0** (public RPCs + free TN10 faucet).
 1. `silverscript_templates` → pick TipJar / TimeoutVault / Escrow (or compile your own with silverc v1.0.0).
 2. `l1_derive_p2sh` → P2SH address.
 3. `l1_prepare_fund` → send KAS to that address (**that is the deploy**).
-4. `l1_prepare_spend` → SafeJSON / signed testnet unlock → **KasWare** `signPskt` / `pushPskt` first.
+4. `l1_prepare_spend` → fill SilverScript unlock (testnet key or compatible signer) → **KasWare** `pushTx`. Fund path: `signPskt` then `pushTx` (or `sendKaspa` to the P2SH).
 
 Mainnet L1 write helpers stay **off** until templates pass **kaspa-redteam** and `KASPA_L1_MAINNET_WRITES=1` is set after owner approval.
 
 ## Wallet
 
-Prefer **KasWare** PSKT (`signPskt` / `pushPskt`). See KasWare transaction docs. Kastle deposit support exists in Studio; signing support varies.
+Prefer **KasWare** SafeJSON: fund with `signPskt`→`pushTx` (or `sendKaspa` to P2SH); spend with pre-filled unlock then `pushTx`. `pushPskt` appears in KasWare docs but was not in extension `main` source as of 2026-10-30. Kastle deposit support exists in Studio; signing support varies.
 
 ## Safety
 

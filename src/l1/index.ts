@@ -5,3 +5,4 @@ export * from "./prepare.js";
 export * from "./compile.js";
 export * from "./templates.js";
 export * from "./kaspa-sdk.js";
+export * from "./utxo.js";

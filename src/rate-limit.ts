@@ -227,8 +227,10 @@ export function peekMcpRequest(bodyText: string): { isCompile: boolean; id: unkn
       method?: string;
       params?: { name?: string };
     };
+    const name = parsed.params?.name;
     const isCompile =
-      parsed.method === "tools/call" && parsed.params?.name === "compile_solidity";
+      parsed.method === "tools/call" &&
+      (name === "compile_solidity" || name === "silverscript_compile");
     return { isCompile, id: parsed.id ?? null };
   } catch {
     return { isCompile: false, id: null };

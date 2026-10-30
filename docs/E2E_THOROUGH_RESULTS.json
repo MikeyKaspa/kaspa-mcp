@@ -1,0 +1,99 @@
+{
+  "at": "2026-10-30T23:21:28.327Z",
+  "network": "testnet-10",
+  "kaswareCite": "docs.kasware.xyz/\u2026/kaspa-transaction + kasware-wallet/extension wallet.ts signPskt/pushTx (SafeJSON)",
+  "minFundSompi": "10000000",
+  "happyPath": [
+    {
+      "template": "tipjar",
+      "entry": "withdraw",
+      "p2shAddress": "kaspatest:prq27l68ksdu9swyrwugw6atns3007jwa654fnqa3jqh6ley79c8uphjug3z5",
+      "fundTxid": "0e7c09ae80669ca4c7fa6771fcc988efdfb2d50d6b3b7971f23b25afd9bf5b2f",
+      "fundExplorer": "https://tn10.kaspa.stream/transactions/0e7c09ae80669ca4c7fa6771fcc988efdfb2d50d6b3b7971f23b25afd9bf5b2f",
+      "spendTxid": "75cad469ab5321b538e4bcd96016caf41d0c91c71dd1784e5f0d92ffb0f54b16",
+      "spendExplorer": "https://tn10.kaspa.stream/transactions/75cad469ab5321b538e4bcd96016caf41d0c91c71dd1784e5f0d92ffb0f54b16",
+      "fundFeeSompi": "336500",
+      "spendFeeSompi": "300000",
+      "kaswareFundMethod": "signPskt",
+      "kaswareSpendMethod": "pushTx"
+    },
+    {
+      "template": "timeout_vault",
+      "entry": "transfer",
+      "p2shAddress": "kaspatest:pz28a3lrr752nzac80mh237uef4yw8rwszstdzya9rp5d2a3dasmsnxzhhgc2",
+      "fundTxid": "39528aad7402b974a44ee5f07034a05eaaa4a023ba266e99df302ed8a963df37",
+      "fundExplorer": "https://tn10.kaspa.stream/transactions/39528aad7402b974a44ee5f07034a05eaaa4a023ba266e99df302ed8a963df37",
+      "spendTxid": "97489f6aa4be733f03f0a4e101df07485de4b2880c299ac96e7aee03da86aee8",
+      "spendExplorer": "https://tn10.kaspa.stream/transactions/97489f6aa4be733f03f0a4e101df07485de4b2880c299ac96e7aee03da86aee8",
+      "fundFeeSompi": "336500",
+      "spendFeeSompi": "300000",
+      "kaswareFundMethod": "signPskt",
+      "kaswareSpendMethod": "pushTx"
+    },
+    {
+      "template": "escrow",
+      "entry": "spend",
+      "p2shAddress": "kaspatest:prjp7ujes0cdckye87ysgrkyx70ug753fu8fnyu0m96q74hwymdcygr0l30h4",
+      "fundTxid": "894128f6f18e5b04df2de3946f85bfa8744ff053290e3d6882d49c8cd3a3bea3",
+      "fundExplorer": "https://tn10.kaspa.stream/transactions/894128f6f18e5b04df2de3946f85bfa8744ff053290e3d6882d49c8cd3a3bea3",
+      "spendTxid": "ad7fece45691e1f0ee448af18a6e8dc4685b31b68b2d5edc517c8d898cb50929",
+      "spendExplorer": "https://tn10.kaspa.stream/transactions/ad7fece45691e1f0ee448af18a6e8dc4685b31b68b2d5edc517c8d898cb50929",
+      "fundFeeSompi": "336500",
+      "spendFeeSompi": "300000",
+      "kaswareFundMethod": "signPskt",
+      "kaswareSpendMethod": "pushTx"
+    }
+  ],
+  "edgeCases": [
+    {
+      "case": "insufficient_funds",
+      "ok": true,
+      "detail": "Insufficient funds to fund 1000000000000000000 sompi (+ fees) from kaspatest:qza6ey35a278ft60rhvjfna96dznge4qrlw9zgr7zedngjzqvd97u9t9lscq6"
+    },
+    {
+      "case": "dust_fund",
+      "ok": true,
+      "detail": "amountSompi 1000 is below MIN_FUND_SOMPI 10000000 (0.1 KAS). Tiny P2SH outputs often fail storage-mass / relay policy."
+    },
+    {
+      "case": "wrong_network_address",
+      "ok": true,
+      "detail": "Address prefix mismatch: expected kaspatest:\u2026 for testnet-10, got \"kaspa:qztestwrongprefix0\u2026\""
+    },
+    {
+      "case": "mainnet_gate",
+      "ok": true,
+      "detail": "Mainnet L1 fund/spend helpers are gated off until templates pass kaspa-redteam and Michael enables KASPA_L1_MAINNET_WRITES=1. Use kaspa-l1-testnet-10."
+    },
+    {
+      "case": "timelock_before_expiry",
+      "ok": true,
+      "detail": "RPC Server (remote error) -> Rejected transaction f0d75716e2ce4a7232b7d283647f5d4f5f69549443ce180a965079a26d2bdf9d: failed to verify the signature script: Unsatisfied lock time: mismatched locktime ty",
+      "fundTxid": "d6701e9439291959ba71c545648c3dc970707dffbc4b2c9441dee776e9aa1e14",
+      "fundExplorer": "https://tn10.kaspa.stream/transactions/d6701e9439291959ba71c545648c3dc970707dffbc4b2c9441dee776e9aa1e14",
+      "note": "timeout entry correctly rejected; UTXO still at vault for cleanup via transfer",
+      "cleanupSpendTxid": "f0d75716e2ce4a7232b7d283647f5d4f5f69549443ce180a965079a26d2bdf9d",
+      "cleanupExplorer": "https://tn10.kaspa.stream/transactions/f0d75716e2ce4a7232b7d283647f5d4f5f69549443ce180a965079a26d2bdf9d",
+      "txidNote": "cleanupSpendTxid equals rejected attempt id because Kaspa txid excludes sigscript; see kaspaTxidNote"
+    },
+    {
+      "case": "escrow_wrong_party",
+      "ok": true,
+      "detail": "RPC Server (remote error) -> Rejected transaction 9e50d47ab960c0d53048e6cd5dd782e0c159b483bea8e8c53487a5c7b0697b8b: failed to verify the signature script: script ran, but verification failed",
+      "fundTxid": "4cc128fc2c1882e10f7bde99b7721050b84b6a3ab31a16de4eb57111155ccf77",
+      "fundExplorer": "https://tn10.kaspa.stream/transactions/4cc128fc2c1882e10f7bde99b7721050b84b6a3ab31a16de4eb57111155ccf77",
+      "cleanupSpendTxid": "9e50d47ab960c0d53048e6cd5dd782e0c159b483bea8e8c53487a5c7b0697b8b",
+      "cleanupExplorer": "https://tn10.kaspa.stream/transactions/9e50d47ab960c0d53048e6cd5dd782e0c159b483bea8e8c53487a5c7b0697b8b",
+      "txidNote": "cleanupSpendTxid equals rejected attempt id because Kaspa txid excludes sigscript; see kaspaTxidNote"
+    },
+    {
+      "case": "many_small_utxos_selection",
+      "ok": true,
+      "detail": "selected 2 inputs, fee 326500",
+      "inputCount": 2,
+      "note": "Did not broadcast; selection only. Storage-mass may still reject pathological dust sets."
+    }
+  ],
+  "allEdgesOk": true,
+  "kaspaTxidNote": "Kaspa transaction_id excludes signature scripts (id is over the unsigned skeleton). A rejected spend and a successful retry with a different unlock (timeout\u2192transfer, wrong key\u2192correct) share the same transaction_id; explorer shows the accepted version. Rejection proof is the RPC error text, not a distinct explorer link. Confirmed locally: timeout vs transfer unlocks differ (tags bcce79af vs de5ac30f) but Transaction.id is identical."
+}

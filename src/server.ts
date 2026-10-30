@@ -557,15 +557,18 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "silverscript_load_artifact",
     {
-      description: "Validate a SilAbiArtifact JSON (from silverc or a template) and return bytecode, entries, template hash.",
+      description: "Validate a SilAbiArtifact JSON (from silverc or a pinned template) and return bytecode, entries, template hash.",
       inputSchema: {
-        artifact: z.unknown(),
+        artifact: z.unknown().optional(),
+        templateId: z.string().optional().describe("tipjar | timeout_vault | escrow"),
         contractName: z.string().optional(),
       },
     },
-    async ({ artifact, contractName }) => {
+    async ({ artifact, templateId, contractName }) => {
       try {
-        const loaded = loadSilArtifact(artifact, contractName);
+        const loaded = templateId
+          ? getTemplate(templateId).loadedExample
+          : loadSilArtifact(artifact, contractName);
         return ok({
           safety: SAFETY_BANNER,
           contractName: loaded.contractName,
@@ -619,24 +622,27 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "l1_derive_p2sh",
     {
-      description: "Derive Kaspa P2SH address from SilverScript redeem bytecode (testnet-10 or mainnet id).",
+      description: "Derive Kaspa P2SH address from SilverScript redeem bytecode (testnet-10 or mainnet id). Requires kaspa-wasm (Node self-host); not available on Cloudflare Workers.",
       inputSchema: {
         bytecodeHex: z.string().optional(),
         artifact: z.unknown().optional(),
+        templateId: z.string().optional().describe("tipjar | timeout_vault | escrow"),
         contractName: z.string().optional(),
         network: z.string().default("kaspa-l1-testnet-10"),
       },
     },
-    async ({ bytecodeHex, artifact, contractName, network: nid }) => {
+    async ({ bytecodeHex, artifact, templateId, contractName, network: nid }) => {
       try {
         const network = getNetwork(nid);
         let bc: Uint8Array;
-        if (artifact) {
+        if (templateId) {
+          bc = getTemplate(templateId).loadedExample.bytecode;
+        } else if (artifact) {
           bc = loadSilArtifact(artifact, contractName).bytecode;
         } else if (bytecodeHex) {
           bc = coerceBytecode(bytecodeHex);
         } else {
-          throw new Error("Provide artifact or bytecodeHex");
+          throw new Error("Provide templateId, artifact, or bytecodeHex");
         }
         const net =
           network.id.includes("mainnet") && !network.isTestnet ? "mainnet" : "testnet-10";
@@ -652,11 +658,12 @@ export function createKaspaMcpServer(): McpServer {
     "l1_prepare_fund",
     {
       description:
-        "Prepare funding a covenant P2SH (send KAS = deploy). Mainnet gated. Returns destination + amount skeleton for KasWare.",
+        "Build a complete unsigned fund tx (UTXO select + fees + change) as KasWare Safe JSON for signPskt→pushTx (or sendKaspa to the P2SH). Mainnet gated. Min 0.1 KAS. Requires kaspa-wasm (Node); Workers return a clear self-host error.",
       inputSchema: {
         network: z.string().default("kaspa-l1-testnet-10"),
         fromAddress: z.string(),
         amountSompi: z.union([z.string(), z.number()]),
+        priorityFeeSompi: z.union([z.string(), z.number()]).optional(),
         bytecodeHex: z.string().optional(),
         artifact: z.unknown().optional(),
         contractName: z.string().optional(),
@@ -676,6 +683,7 @@ export function createKaspaMcpServer(): McpServer {
           bytecode: bc,
           fromAddress: a.fromAddress,
           amountSompi: BigInt(a.amountSompi),
+          priorityFeeSompi: a.priorityFeeSompi != null ? BigInt(a.priorityFeeSompi) : undefined,
         });
         return ok({ safety: SAFETY_BANNER, ...prepared });
       } catch (e) {

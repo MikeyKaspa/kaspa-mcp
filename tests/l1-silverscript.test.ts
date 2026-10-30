@@ -62,3 +62,32 @@ describe("silverscript_compile self-host", () => {
     expect(loaded.bytecodeHex).toBe(t.loadedExample.bytecodeHex);
   });
 });
+
+describe("guards", () => {
+  it("loadSilArtifact rejects null/undefined", async () => {
+    expect(() => loadSilArtifact(null)).toThrow(/SilAbiArtifact/);
+    expect(() => loadSilArtifact(undefined)).toThrow(/SilAbiArtifact/);
+  });
+
+  it("assertAddressNetwork enforces prefixes", async () => {
+    const { assertAddressNetwork } = await import("../src/l1/utxo.js");
+    expect(() => assertAddressNetwork("kaspa:qzabc", "testnet-10")).toThrow(/kaspatest/);
+    expect(() => assertAddressNetwork("kaspatest:qzabc", "mainnet")).toThrow(/kaspa:/);
+    expect(() => assertAddressNetwork("kaspatest:qzabc", "testnet-10")).not.toThrow();
+  });
+
+  it("mainnet L1 writes gated without env", async () => {
+    const { assertL1NetworkWritable } = await import("../src/l1/kaspa-sdk.js");
+    const prev = process.env.KASPA_L1_MAINNET_WRITES;
+    delete process.env.KASPA_L1_MAINNET_WRITES;
+    expect(() => assertL1NetworkWritable(false, "kaspa-l1-mainnet")).toThrow(/MAINNET_WRITES|gated/i);
+    expect(() => assertL1NetworkWritable(true, "kaspa-l1-testnet-10")).not.toThrow();
+    if (prev === undefined) delete process.env.KASPA_L1_MAINNET_WRITES;
+    else process.env.KASPA_L1_MAINNET_WRITES = prev;
+  });
+
+  it("MIN_FUND_SOMPI is 0.1 KAS", async () => {
+    const { MIN_FUND_SOMPI } = await import("../src/l1/prepare.js");
+    expect(MIN_FUND_SOMPI).toBe(10_000_000n);
+  });
+});

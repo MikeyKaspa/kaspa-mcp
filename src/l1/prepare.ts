@@ -1,94 +1,262 @@
+/**
+ * L1 fund/spend builders producing KasWare-compatible Safe JSON.
+ *
+ * KasWare source of truth (verified 2026-10-30):
+ * - Docs: https://docs.kasware.xyz/wallet/developer-documentation/kaspa/kaspa-transaction
+ *   signPskt({ txJsonString }) requires Safe JSON deserializable by
+ *   kaspa-wasm Transaction.deserializeFromSafeJSON(); returns signed Safe JSON;
+ *   pushTx(txJsonString) broadcasts.
+ * - Extension: kasware-wallet/extension src/background/controller/wallet.ts
+ *   signPskt → Transaction.deserializeFromSafeJSON(txJsonString) → walletSignTransaction
+ *   → signedTx.serializeToSafeJSON(); pushTx → deserializeFromSafeJSON → submit.
+ * - Example Safe JSON in KasWare docs includes inputs[].utxo with address/amount/
+ *   scriptPublicKey/blockDaaScore — matching PendingTransaction.transaction.serializeToSafeJSON().
+ *
+ * Fund: P2PK inputs → KasWare signPskt / pushPskt (or sendKaspa for simple sends).
+ * Spend (SilverScript P2SH): covenant unlock (checkSig args + dispatch tag + redeem)
+ * must be pre-filled before pushTx. KasWare signPskt only signs account P2PK inputs
+ * (see KCC-20 docs: "signs only the open P2PK funding inputs"; covenant arg scripts
+ * are assembled by the dApp). Testnet privateKey path fills the unlock for e2e.
+ */
 import { loadKaspa, assertL1NetworkWritable } from "./kaspa-sdk.js";
-import { buildEntryUnlock, bytesToHex, hexToBytes } from "./script.js";
+import { buildEntryUnlock } from "./script.js";
 import type { LoadedArtifact } from "./artifact.js";
 import { entryOf } from "./artifact.js";
 import { deriveP2shAddress } from "./p2sh.js";
+import {
+  assertAddressNetwork,
+  fetchUtxosRest,
+  toKaspaEntries,
+  type RestUtxo,
+} from "./utxo.js";
 
 const SUBNETWORK = "0000000000000000000000000000000000000000";
+
+/** Dust / change threshold aligned with KasWare kaspaMass CHANGE_THRESHOLD spirit (~1e5 sompi mass fee floor). */
+export const MIN_CHANGE_SOMPI = 100_000n;
+/** Reject covenant fund outputs below this (storage-mass traps on tiny P2SH coins). */
+export const MIN_FUND_SOMPI = 10_000_000n; // 0.1 KAS
 
 export interface PrepareFundResult {
   mode: "unsigned_safe_json";
   networkId: string;
+  kaspaNetwork: string;
   p2shAddress: string;
   amountSompi: string;
   changeAddress: string;
-  /** Transaction.serializeToSafeJSON — sign with KasWare signPskt / pushPskt */
+  feeSompi: string;
+  inputCount: number;
+  outputCount: number;
+  /** Exact KasWare signPskt txJsonString (unsigned; empty signatureScript). */
   safeJson: string;
+  /** Pass to KasWare: signPskt({ txJsonString: safeJson, options: { signInputs } }) */
+  kasware: {
+    method: "signPskt" | "pushPskt";
+    signInputs: Array<{ index: number; sighashType: number }>;
+    docs: string;
+    sourceCite: string;
+  };
   summary: string;
   walletHint: string;
 }
 
 export interface PrepareSpendResult {
-  mode: "unsigned_safe_json" | "signed_testnet_only";
+  mode: "unsigned_safe_json" | "signed_ready_for_pushTx";
   networkId: string;
+  kaspaNetwork: string;
   p2shAddress: string;
   entry: string;
+  feeSompi: string;
+  outputAmountSompi: string;
   safeJson: string;
+  signedSafeJson?: string;
+  kasware: {
+    /** After unlock is filled: pushTx(signedSafeJson). Unsigned P2SH needs pre-filled unlock. */
+    method: "pushTx" | "signPskt_then_pushTx";
+    signInputs: Array<{ index: number; sighashType: number }>;
+    docs: string;
+    sourceCite: string;
+    note: string;
+  };
   summary: string;
   walletHint: string;
-  /** Present only when testnet privateKey was used to finish the unlock script */
-  signedSafeJson?: string;
 }
 
-const KASWARE_HINT =
-  "KasWare: use window.kasware.signPskt({ txJsonString }) then pushTx, or pushPskt for sign+broadcast. " +
-  "Pass SafeJSON from serializeToSafeJSON. Covenant-aware submit preserves bindings. " +
-  "See https://docs.kasware.xyz/wallet/developer-documentation/kaspa/kaspa-transaction";
+export const KASWARE_HINT =
+  "KasWare fund: signPskt({ txJsonString: safeJson }) then pushTx, or pushPskt({ txJsonString }). " +
+  "Spend: SilverScript unlock must be filled first (testnet privateKey path or compatible signer), then pushTx. " +
+  "Docs: https://docs.kasware.xyz/wallet/developer-documentation/kaspa/kaspa-transaction";
 
-function kaspaNetworkId(network: { id: string; isTestnet: boolean }): string {
+const KASWARE_SOURCE_CITE =
+  "kasware-wallet/extension wallet.ts: signPskt=deserializeFromSafeJSON→walletSignTransaction→serializeToSafeJSON; " +
+  "pushTx=deserializeFromSafeJSON→submit. docs.kasware.xyz …/kaspa-transaction. " +
+  "pushPskt is documented there but was NOT present in extension main source as of 2026-10-30 (prefer signPskt+pushTx).";
+
+function kaspaNetworkId(network: { id: string; isTestnet: boolean }): "testnet-10" | "mainnet" {
   if (network.id.includes("testnet-10") || network.id.includes("tn10")) return "testnet-10";
-  if (network.isTestnet) return "testnet-10";
-  return "mainnet";
+  if (!network.isTestnet) return "mainnet";
+  return "testnet-10";
+}
+
+function apiBaseFor(network: { id: string; isTestnet: boolean; rpcUrl?: string }): string {
+  if (network.rpcUrl) return network.rpcUrl.replace(/\/$/, "");
+  return network.isTestnet ? "https://api-tn10.kaspa.org" : "https://api.kaspa.org";
+}
+
+function sighashAllInputs(n: number) {
+  return Array.from({ length: n }, (_, index) => ({ index, sighashType: 1 }));
+}
+
+/**
+ * Prefer wRPC when available (accurate ScriptPublicKey objects); fall back to REST.
+ */
+async function loadEntries(
+  kaspa: Awaited<ReturnType<typeof loadKaspa>>,
+  net: "testnet-10" | "mainnet",
+  address: string,
+  apiBase: string,
+): Promise<{ entries: unknown[]; rest: RestUtxo[] }> {
+  const wrpcUrls =
+    net === "testnet-10"
+      ? [
+          process.env.KASPA_RPC_URL,
+          "wss://electron-10.kaspa.blue/kaspa/testnet-10/wrpc/borsh",
+        ].filter(Boolean) as string[]
+      : [process.env.KASPA_MAINNET_RPC_URL].filter(Boolean) as string[];
+
+  for (const url of wrpcUrls) {
+    try {
+      const rpc = new kaspa.RpcClient({
+        url,
+        encoding: kaspa.Encoding.Borsh,
+        networkId: net,
+      });
+      await rpc.connect();
+      try {
+        const { entries } = await rpc.getUtxosByAddresses({ addresses: [address] });
+        if (entries?.length) {
+          return { entries, rest: [] };
+        }
+      } finally {
+        try {
+          await rpc.disconnect();
+        } catch {
+          /* ignore */
+        }
+      }
+    } catch {
+      /* try next / REST */
+    }
+  }
+
+  const rest = await fetchUtxosRest(apiBase, address);
+  return { entries: toKaspaEntries(rest), rest };
 }
 
 export async function prepareFund(opts: {
-  network: { id: string; isTestnet: boolean; explorerUrl?: string };
+  network: { id: string; isTestnet: boolean; explorerUrl?: string; rpcUrl?: string };
   bytecode: Uint8Array;
   fromAddress: string;
   amountSompi: bigint;
-  /** Optional: priority fee in sompi */
   priorityFeeSompi?: bigint;
+  /** Injected UTXOs for unit tests (skips network fetch). */
+  utxoEntries?: unknown[];
 }): Promise<PrepareFundResult> {
-  assertL1NetworkWritable(opts.network.isTestnet);
+  assertL1NetworkWritable(opts.network.isTestnet, opts.network.id);
   const kaspa = await loadKaspa();
   const net = kaspaNetworkId(opts.network);
-  const p2sh = await deriveP2shAddress(opts.bytecode, net);
+  assertAddressNetwork(opts.fromAddress, net);
 
-  // Build a minimal unsigned payment template as SafeJSON for the wallet to complete
-  // (select UTXOs / fees). We return the destination + amount + a skeleton summary.
-  // Full UTXO selection without keys uses createTransactions only when entries provided —
-  // here we emit a wallet-oriented payload.
-  const skeleton = {
-    network: net,
-    outputs: [{ address: p2sh.address, amount: opts.amountSompi.toString() }],
-    changeAddress: opts.fromAddress,
-    priorityFeeSompi: (opts.priorityFeeSompi ?? 10000n).toString(),
+  if (opts.amountSompi < MIN_FUND_SOMPI) {
+    throw new Error(
+      `amountSompi ${opts.amountSompi} is below MIN_FUND_SOMPI ${MIN_FUND_SOMPI} (0.1 KAS). ` +
+        `Tiny P2SH outputs often fail storage-mass / relay policy.`,
+    );
+  }
+
+  const p2sh = await deriveP2shAddress(opts.bytecode, net);
+  assertAddressNetwork(p2sh.address, net);
+
+  let entries = opts.utxoEntries;
+  if (!entries) {
+    const loaded = await loadEntries(kaspa, net, opts.fromAddress, apiBaseFor(opts.network));
+    entries = loaded.entries;
+  }
+  if (!entries.length) {
+    throw new Error(`No UTXOs at ${opts.fromAddress} on ${net}`);
+  }
+
+  const priorityFee = opts.priorityFeeSompi ?? 10_000n;
+  let pending;
+  try {
+    const { transactions } = await kaspa.createTransactions({
+      entries: entries as never,
+      outputs: [{ address: p2sh.address, amount: opts.amountSompi }],
+      changeAddress: opts.fromAddress,
+      priorityFee,
+      networkId: net,
+    });
+    pending = transactions[0];
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/storage mass/i.test(msg)) {
+      throw new Error(
+        `Storage mass exceeds maximum for this fund (amount ${opts.amountSompi} sompi). ` +
+          `Use a larger amount (≥ ${MIN_FUND_SOMPI}) or consolidate small UTXOs first. Underlying: ${msg}`,
+      );
+    }
+    if (/insufficient|lack of funds|amount.*exceed/i.test(msg)) {
+      throw new Error(`Insufficient funds to fund ${opts.amountSompi} sompi (+ fees) from ${opts.fromAddress}`);
+    }
+    throw e;
+  }
+  if (!pending) throw new Error("createTransactions returned no pending transaction");
+
+  const tx = pending.transaction;
+  const safeJson = tx.serializeToSafeJSON();
+  // Round-trip verify KasWare deserialization path
+  const roundTrip = kaspa.Transaction.deserializeFromSafeJSON(safeJson);
+  if (roundTrip.inputs.length !== tx.inputs.length) {
+    throw new Error("SafeJSON round-trip input count mismatch");
+  }
+
+  const parsed = JSON.parse(safeJson) as {
+    inputs: Array<{ utxo?: { amount: string } }>;
+    outputs: Array<{ value: string }>;
   };
+  const inSum = parsed.inputs.reduce((a, i) => a + BigInt(i.utxo?.amount ?? 0), 0n);
+  const outSum = parsed.outputs.reduce((a, o) => a + BigInt(o.value), 0n);
+  const feeSompi = inSum - outSum;
 
   return {
     mode: "unsigned_safe_json",
     networkId: opts.network.id,
+    kaspaNetwork: net,
     p2shAddress: p2sh.address,
     amountSompi: opts.amountSompi.toString(),
     changeAddress: opts.fromAddress,
-    safeJson: JSON.stringify(skeleton),
+    feeSompi: feeSompi.toString(),
+    inputCount: parsed.inputs.length,
+    outputCount: parsed.outputs.length,
+    safeJson,
+    kasware: {
+      method: "signPskt",
+      signInputs: sighashAllInputs(parsed.inputs.length),
+      docs: "https://docs.kasware.xyz/wallet/developer-documentation/kaspa/kaspa-transaction",
+      sourceCite: KASWARE_SOURCE_CITE,
+    },
     summary:
-      `Fund L1 covenant P2SH ${p2sh.address} with ${opts.amountSompi} sompi on ${net}. ` +
-      `No separate deploy step — sending KAS to this address activates the contract.`,
+      `Fund P2SH ${p2sh.address} with ${opts.amountSompi} sompi on ${net} ` +
+      `(${parsed.inputs.length} inputs, fee ${feeSompi} sompi). ` +
+      `KasWare: signPskt then pushTx (or pushPskt).`,
     walletHint: KASWARE_HINT,
   };
 }
 
-/**
- * Prepare a spend of a P2SH covenant UTXO.
- * If `privateKeyHex` is provided (testnet only), finishes signatureScript (for e2e).
- * Otherwise returns unsigned tx SafeJSON + unlock recipe for the wallet.
- */
 export async function prepareSpend(opts: {
-  network: { id: string; isTestnet: boolean };
+  network: { id: string; isTestnet: boolean; rpcUrl?: string };
   loaded: LoadedArtifact;
   entryName: string;
-  /** ABI args matching entry params (hex strings for pubkey/sig/bytes; numbers for int) */
   args: unknown[];
   p2shUtxo: {
     outpoint: { transactionId: string; index: number };
@@ -99,24 +267,31 @@ export async function prepareSpend(opts: {
     address?: string;
   };
   destinationAddress: string;
-  /** Exact output amount; if omitted, input - feeSompi */
   outputAmountSompi?: bigint;
   feeSompi?: bigint;
-  /** Testnet only — finishes Schnorr sig for params of kind `sig` that are omitted / null */
+  /** Optional lockTime (ms) for timeout-path spends */
+  lockTimeMs?: bigint;
   privateKeyHex?: string;
+  /** Extra P2PK fee-funding UTXOs (same owner) — KasWare can signPskt these if unlock pre-filled on P2SH */
+  feeFundingEntries?: unknown[];
 }): Promise<PrepareSpendResult> {
-  assertL1NetworkWritable(opts.network.isTestnet);
+  assertL1NetworkWritable(opts.network.isTestnet, opts.network.id);
   if (opts.privateKeyHex && !opts.network.isTestnet) {
     throw new Error("privateKey only allowed on testnet L1");
   }
   const kaspa = await loadKaspa();
   const net = kaspaNetworkId(opts.network);
+  assertAddressNetwork(opts.destinationAddress, net);
+
   const entry = entryOf(opts.loaded, opts.entryName);
   const p2sh = await deriveP2shAddress(opts.loaded.bytecode, net);
   const inAmt = BigInt(opts.p2shUtxo.amount);
-  const fee = opts.feeSompi ?? 300000n;
+  const fee = opts.feeSompi ?? 300_000n;
   const outAmt = opts.outputAmountSompi ?? inAmt - fee;
-  if (outAmt <= 0n) throw new Error("output amount must be positive (fee too high?)");
+  if (outAmt <= 0n) throw new Error("output amount must be positive (fee too high for this UTXO)");
+  if (outAmt < MIN_CHANGE_SOMPI && outAmt !== inAmt - fee) {
+    // allow exact escrow formulas
+  }
 
   const utxo = {
     address: opts.p2shUtxo.address ?? p2sh.address,
@@ -128,6 +303,8 @@ export async function prepareSpend(opts: {
   };
 
   const outSpk = kaspa.payToAddressScript(opts.destinationAddress);
+  const lockTime = opts.lockTimeMs ?? 0n;
+
   const mkTx = (sigScript: string) =>
     new kaspa.Transaction({
       version: 0,
@@ -137,12 +314,11 @@ export async function prepareSpend(opts: {
           signatureScript: sigScript,
           sequence: 0n,
           sigOpCount: 1,
-          // kaspa-wasm accepts plain UTXO entry objects at runtime
           utxo: utxo as never,
         }),
       ],
       outputs: [new kaspa.TransactionOutput(outAmt, outSpk)],
-      lockTime: 0n,
+      lockTime,
       subnetworkId: SUBNETWORK,
       gas: 0n,
       payload: "",
@@ -150,6 +326,8 @@ export async function prepareSpend(opts: {
 
   const unsigned = mkTx("");
   const safeJson = unsigned.serializeToSafeJSON();
+  // Verify KasWare can deserialize
+  kaspa.Transaction.deserializeFromSafeJSON(safeJson);
 
   let signedSafeJson: string | undefined;
   let mode: PrepareSpendResult["mode"] = "unsigned_safe_json";
@@ -163,52 +341,103 @@ export async function prepareSpend(opts: {
       "hex",
     );
 
-    // Fill sig / pubkey args: null/"$sig"/"$pk" placeholders
     const filled = opts.args.map((a, i) => {
       const kind = entry.params[i]?.type.kind;
       if (a === null || a === undefined || a === "$sig" || a === "$signature") {
-        if (kind !== "sig") throw new Error(`placeholder $sig for non-sig param ${entry.params[i]?.name}`);
+        if (kind !== "sig") throw new Error(`$sig placeholder on non-sig param ${entry.params[i]?.name}`);
         return sigBytes;
       }
       if (a === "$pk" || a === "$pubkey") {
-        if (kind !== "pubkey") throw new Error(`placeholder $pk for non-pubkey param`);
+        if (kind !== "pubkey") throw new Error(`$pk placeholder on non-pubkey param`);
         return xonly;
       }
       return a;
     });
-
-    // If a sig param was provided as empty, still inject
     for (let i = 0; i < entry.params.length; i++) {
-      if (entry.params[i]!.type.kind === "sig" && (filled[i] === "" || filled[i] == null)) {
-        filled[i] = sigBytes;
-      }
-      if (entry.params[i]!.type.kind === "pubkey" && (filled[i] === "" || filled[i] == null)) {
-        filled[i] = xonly;
-      }
+      if (entry.params[i]!.type.kind === "sig" && (filled[i] === "" || filled[i] == null)) filled[i] = sigBytes;
+      if (entry.params[i]!.type.kind === "pubkey" && (filled[i] === "" || filled[i] == null)) filled[i] = xonly;
     }
 
     const unlock = buildEntryUnlock(entry, filled);
     const unlockHex = String(kaspa.payToScriptHashSignatureScript(opts.loaded.bytecode, unlock));
     const signed = mkTx(unlockHex);
     signedSafeJson = signed.serializeToSafeJSON();
-    mode = "signed_testnet_only";
-  } else {
-    // Document required args for wallet-side completion
-    void buildEntryUnlock; // used when signing
+    kaspa.Transaction.deserializeFromSafeJSON(signedSafeJson);
+    mode = "signed_ready_for_pushTx";
   }
 
   return {
     mode,
     networkId: opts.network.id,
+    kaspaNetwork: net,
     p2shAddress: p2sh.address,
     entry: opts.entryName,
+    feeSompi: fee.toString(),
+    outputAmountSompi: outAmt.toString(),
     safeJson,
     signedSafeJson,
+    kasware: {
+      method: mode === "signed_ready_for_pushTx" ? "pushTx" : "signPskt_then_pushTx",
+      signInputs: [],
+      docs: "https://docs.kasware.xyz/wallet/developer-documentation/kaspa/kaspa-transaction",
+      sourceCite: KASWARE_SOURCE_CITE,
+      note:
+        mode === "signed_ready_for_pushTx"
+          ? "Unlock filled. Broadcast with KasWare pushTx(signedSafeJson) or RpcClient.submitTransaction."
+          : "SilverScript P2SH unlock is NOT filled by KasWare signPskt (wallet only signs owned P2PK inputs; " +
+            "see KCC-20 docs). Fill unlock (testnet privateKey on this tool) then pushTx.",
+    },
     summary:
-      `Spend P2SH ${p2sh.address} via entry "${opts.entryName}" → ${opts.destinationAddress} ` +
-      `(${outAmt} sompi, fee budget ${fee} sompi) on ${net}.`,
+      `Spend P2SH ${p2sh.address} entry "${opts.entryName}" → ${opts.destinationAddress} ` +
+      `(${outAmt} sompi, fee ${fee} sompi) on ${net}.`,
     walletHint: KASWARE_HINT,
   };
 }
 
-export { KASWARE_HINT, buildEntryUnlock, hexToBytes, bytesToHex };
+/** Mimic KasWare signPskt for P2PK-funded SafeJSON (fund path). */
+export async function mimicKaswareSignPskt(
+  safeJson: string,
+  privateKeyHex: string,
+  signInputs?: Array<{ index: number; sighashType: number }>,
+): Promise<string> {
+  const kaspa = await loadKaspa();
+  const key = new kaspa.PrivateKey(privateKeyHex.replace(/^0x/, ""));
+  const tx = kaspa.Transaction.deserializeFromSafeJSON(safeJson);
+  const indices =
+    signInputs?.map((s) => s.index) ??
+    Array.from({ length: tx.inputs.length }, (_, i) => i);
+  for (const idx of indices) {
+    const sig = kaspa.createInputSignature(tx, idx, key, kaspa.SighashType.All);
+    // Standard P2PK unlock is the push-encoded signature from createInputSignature
+    tx.inputs[idx]!.signatureScript = sig;
+  }
+  return tx.serializeToSafeJSON();
+}
+
+export async function submitSafeJson(
+  safeJson: string,
+  network: { id: string; isTestnet: boolean },
+): Promise<string> {
+  const kaspa = await loadKaspa();
+  const net = kaspaNetworkId(network);
+  const url =
+    net === "testnet-10"
+      ? process.env.KASPA_RPC_URL || "wss://electron-10.kaspa.blue/kaspa/testnet-10/wrpc/borsh"
+      : process.env.KASPA_MAINNET_RPC_URL;
+  if (!url) throw new Error("No wRPC URL for submit");
+  const rpc = new kaspa.RpcClient({ url, encoding: kaspa.Encoding.Borsh, networkId: net });
+  await rpc.connect();
+  try {
+    const tx = kaspa.Transaction.deserializeFromSafeJSON(safeJson);
+    const res = await rpc.submitTransaction({ transaction: tx, allowOrphan: false });
+    return (res as { transactionId?: string }).transactionId || String(res);
+  } finally {
+    try {
+      await rpc.disconnect();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+export { assertAddressNetwork, MIN_CHANGE_SOMPI as DUST_THRESHOLD_SOMPI };

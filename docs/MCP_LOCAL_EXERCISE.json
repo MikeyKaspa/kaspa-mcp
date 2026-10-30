@@ -1,0 +1,133 @@
+{
+  "at": "2026-10-30T23:28:09.914Z",
+  "runtime": "node",
+  "results": [
+    {
+      "tool": "list_networks",
+      "ok": true,
+      "preview": "{\n  \"safety\": \"Safety: non-custodial. No keys stored. Mainnet = unsigned tx only. Testnet privateKey is per-call ephemeral. $0 public RPCs + free faucets only.\",\n  \"defaultEvmTestnet\": \"kasplex-testnet\",\n  \"networks\": [\n"
+    },
+    {
+      "tool": "kaspa_network_info",
+      "ok": true,
+      "preview": "{\n  \"safety\": \"Safety: non-custodial. No keys stored. Mainnet = unsigned tx only. Testnet privateKey is per-call ephemeral. $0 public RPCs + free faucets only.\",\n  \"network\": {\n    \"id\": \"kaspa-l1-testnet-10\",\n    \"displ"
+    },
+    {
+      "tool": "kaspa_ideas",
+      "ok": true,
+      "preview": "Safety: non-custodial. No keys stored. Mainnet = unsigned tx only. Testnet privateKey is per-call ephemeral. $0 public RPCs + free faucets only.\n\nTheme: vault\n\n## Realistic paths today\n- **Primary today:** Kaspa L1 Silve"
+    },
+    {
+      "tool": "faucet_info",
+      "ok": true,
+      "preview": "{\n  \"network\": \"kaspa-l1-testnet-10\",\n  \"faucetUrl\": \"https://faucet-tn10.kaspanet.io\",\n  \"notes\": \"Official Kaspa testnet faucet for tKAS (L1). Free.\",\n  \"cost\": \"$0 testnet tokens only\"\n}"
+    },
+    {
+      "tool": "l1_blockdag_info",
+      "ok": true,
+      "preview": "{\n  \"networkName\": \"kaspa-testnet-10\",\n  \"blockCount\": \"1158753\",\n  \"headerCount\": \"1158753\",\n  \"tipHashes\": [\n    \"2dc89d0558d1cbd44178a27b352367111bfabed9a6fcca2355e01781db303790\",\n    \"07b37edea4a7d18432ee16cf58686fab"
+    },
+    {
+      "tool": "verify_rpc",
+      "ok": true,
+      "preview": "{\n  \"network\": \"kasplex-testnet\",\n  \"expectedChainId\": 167012,\n  \"reportedChainId\": 167012,\n  \"ok\": true,\n  \"rpcUrl\": \"https://rpc.kasplextest.xyz\"\n}"
+    },
+    {
+      "tool": "get_balance",
+      "ok": true,
+      "preview": "{\n  \"address\": \"kaspatest:qza6ey35a278ft60rhvjfna96dznge4qrlw9zgr7zedngjzqvd97u9t9lscq6\",\n  \"balanceWei\": \"949794075100\",\n  \"balanceFormatted\": \"9497.940751\",\n  \"symbol\": \"TKAS\",\n  \"networkId\": \"kaspa-l1-testnet-10\"\n}"
+    },
+    {
+      "tool": "get_tx",
+      "ok": true,
+      "preview": "{\n  \"hash\": \"0e7c09ae80669ca4c7fa6771fcc988efdfb2d50d6b3b7971f23b25afd9bf5b2f\",\n  \"status\": \"unknown\",\n  \"explorerUrl\": \"https://tn10.kaspa.stream/transactions/0e7c09ae80669ca4c7fa6771fcc988efdfb2d50d6b3b7971f23b25afd9bf"
+    },
+    {
+      "tool": "silverscript_templates",
+      "ok": true,
+      "preview": "{\n  \"safety\": \"Safety: non-custodial. No keys stored. Mainnet = unsigned tx only. Testnet privateKey is per-call ephemeral. $0 public RPCs + free faucets only.\",\n  \"templates\": [\n    {\n      \"id\": \"tipjar\",\n      \"title\""
+    },
+    {
+      "tool": "silverscript_load_artifact",
+      "ok": true,
+      "preview": "{\n  \"safety\": \"Safety: non-custodial. No keys stored. Mainnet = unsigned tx only. Testnet privateKey is per-call ephemeral. $0 public RPCs + free faucets only.\",\n  \"contractName\": \"TimeoutVault\",\n  \"bytecodeHex\": \"7604de"
+    },
+    {
+      "tool": "silverscript_compile",
+      "ok": false,
+      "preview": "silverc failed: compile error: parse error:  --> 1:15\n  |\n1 | contract Demo { entry ping() { } }\n  |               ^---\n  |\n  = error: expected parameter_list\n    note: expected one of tokens: `(`, `/*`, `//`, WHITESPACE"
+    },
+    {
+      "tool": "l1_derive_p2sh",
+      "ok": true,
+      "preview": "{\n  \"safety\": \"Safety: non-custodial. No keys stored. Mainnet = unsigned tx only. Testnet privateKey is per-call ephemeral. $0 public RPCs + free faucets only.\",\n  \"networkId\": \"kaspa-l1-testnet-10\",\n  \"network\": \"testne"
+    },
+    {
+      "tool": "l1_prepare_fund",
+      "ok": true,
+      "preview": "{\n  \"safety\": \"Safety: non-custodial. No keys stored. Mainnet = unsigned tx only. Testnet privateKey is per-call ephemeral. $0 public RPCs + free faucets only.\",\n  \"mode\": \"unsigned_safe_json\",\n  \"networkId\": \"kaspa-l1-t"
+    },
+    {
+      "tool": "l1_prepare_fund",
+      "ok": false,
+      "preview": "Mainnet L1 fund/spend helpers are gated off until templates pass kaspa-redteam and Michael enables KASPA_L1_MAINNET_WRITES=1. Use kaspa-l1-testnet-10."
+    },
+    {
+      "tool": "l1_prepare_spend",
+      "ok": true,
+      "preview": "{\n  \"safety\": \"Safety: non-custodial. No keys stored. Mainnet = unsigned tx only. Testnet privateKey is per-call ephemeral. $0 public RPCs + free faucets only.\",\n  \"mode\": \"unsigned_safe_json\",\n  \"networkId\": \"kaspa-l1-t"
+    },
+    {
+      "tool": "compile_solidity",
+      "ok": true,
+      "preview": "{\n  \"contractName\": \"C\",\n  \"abi\": [\n    {\n      \"inputs\": [],\n      \"name\": \"x\",\n      \"outputs\": [\n        {\n          \"internalType\": \"uint256\",\n          \"name\": \"\",\n          \"type\": \"uint256\"\n        }\n      ],\n    "
+    },
+    {
+      "tool": "prepare_deploy",
+      "ok": true,
+      "preview": "{\n  \"safety\": \"Safety: non-custodial. No keys stored. Mainnet = unsigned tx only. Testnet privateKey is per-call ephemeral. $0 public RPCs + free faucets only.\",\n  \"prepared\": {\n    \"mode\": \"unsigned\",\n    \"networkId\": \""
+    },
+    {
+      "tool": "read_contract",
+      "ok": true,
+      "preview": "{\n  \"raw\": \"0x\",\n  \"networkId\": \"kasplex-testnet\"\n}"
+    },
+    {
+      "tool": "prepare_call",
+      "ok": true,
+      "preview": "{\n  \"safety\": \"Safety: non-custodial. No keys stored. Mainnet = unsigned tx only. Testnet privateKey is per-call ephemeral. $0 public RPCs + free faucets only.\",\n  \"prepared\": {\n    \"mode\": \"unsigned\",\n    \"networkId\": \""
+    },
+    {
+      "tool": "send_raw_transaction",
+      "ok": false,
+      "preview": "could not coalesce error (error={ \"code\": -32602, \"message\": \"Invalid transaction data: failed to decode transaction: typed transaction too short\" }, payload={ \"id\": 2, \"jsonrpc\": \"2.0\", \"method\": \"eth_sendRawTransaction"
+    },
+    {
+      "tool": "deploy_contract",
+      "ok": false,
+      "preview": "deploy requires testnet privateKey (ephemeral) or signedRawTx. On mainnet use prepare_deploy."
+    }
+  ],
+  "summary": {
+    "total": 21,
+    "ok": 17,
+    "expectedErrors": [
+      "l1_prepare_fund",
+      "send_raw_transaction",
+      "deploy_contract"
+    ],
+    "unexpectedFails": [
+      {
+        "tool": "silverscript_compile",
+        "preview": "silverc failed: compile error: parse error:  --> 1:15\n  |\n1 | contract Demo { entry ping() { } }\n  |               ^---\n  |\n  = error: expected parameter_list\n    note: expected one of tokens: `(`, `/*`, `//`, WHITESPACE"
+      }
+    ],
+    "mainnetGateOk": true
+  },
+  "workerNote": "wrangler dev: templates/load_artifact/list/reads work; l1_derive_p2sh + l1_prepare_* fail with kaspa-wasm __dirname (Node-only vendor build). Node npm start exercises those successfully. silverscript_compile works on Node when SILVERC_PATH set; invalid .sil returns silverc parse error.",
+  "wranglerDryRun": {
+    "totalUploadKiB": 2151.68,
+    "gzipKiB": 416.81,
+    "freeWorkerLimitNote": "Cloudflare Workers free script size limit is 3 MiB; upload ~2.1 MiB under limit. Dry-run only \u2014 no public redeploy."
+  }
+}

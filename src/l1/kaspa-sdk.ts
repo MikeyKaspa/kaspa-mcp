@@ -24,8 +24,14 @@ export function isMainnetL1WritesEnabled(): boolean {
   return process.env.KASPA_L1_MAINNET_WRITES === "1" || process.env.KASPA_L1_MAINNET_WRITES === "true";
 }
 
-export function assertL1NetworkWritable(isTestnet: boolean): void {
-  if (!isTestnet && !isMainnetL1WritesEnabled()) {
+/** Refuse mainnet writes unless KASPA_L1_MAINNET_WRITES is explicitly enabled. */
+export function assertL1NetworkWritable(
+  isTestnet: boolean,
+  networkId?: string,
+): void {
+  const id = (networkId ?? "").toLowerCase();
+  const isMain = !isTestnet || id.includes("mainnet");
+  if (isMain && !isMainnetL1WritesEnabled()) {
     throw new Error(
       "Mainnet L1 fund/spend helpers are gated off until templates pass kaspa-redteam " +
         "and Michael enables KASPA_L1_MAINNET_WRITES=1. Use kaspa-l1-testnet-10.",
