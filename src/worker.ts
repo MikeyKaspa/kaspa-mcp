@@ -24,6 +24,7 @@ export interface Env extends RateLimitEnv {
   MCP_PUBLIC?: string;
   KASPA_L1_MAINNET_WRITES?: string;
   SIGN_SESSIONS?: { put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>; get(key: string): Promise<string | null> };
+  ASSETS?: { fetch(request: Request | string): Promise<Response> };
 }
 
 const CORS_HEADERS: Record<string, string> = {
@@ -61,7 +62,7 @@ export default {
           l1MainnetPrepare: env.KASPA_L1_MAINNET_WRITES === "1" || env.KASPA_L1_MAINNET_WRITES === "true",
           signSessions: Boolean(env.SIGN_SESSIONS),
           compileHint:
-            "Workers: no solc eval; no silverc WASM. Use silverscript_templates / paste artifact / bytecode+abi. Self-host npm start for compile + L1 prepare (kaspa-wasm).",
+            "Workers: no solc/silverc. L1 prepare = browser_build via /kaspa-wasm assets + tap link. Self-host npm start for Node prepare + silverc.",
         }),
       );
     }

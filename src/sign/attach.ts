@@ -1,11 +1,10 @@
 import type { SignStore } from "./store.js";
 import { buildSession } from "./store.js";
-import type { SignKind, SignSession, TapToApprove } from "./types.js";
+import type { L1BrowserBuild, SignKind, SignSession, TapToApprove } from "./types.js";
 import { SIGN_TTL_SEC } from "./types.js";
 
 export interface SignContext {
   store: SignStore;
-  /** Public origin for links, e.g. https://kaspa-mcp.…workers.dev */
   publicBaseUrl: string;
 }
 
@@ -38,6 +37,7 @@ export async function attachTapToApprove(
     safeJson?: string;
     signedSafeJson?: string;
     signInputs?: Array<{ index: number; sighashType: number }>;
+    l1Build?: L1BrowserBuild;
     evm?: SignSession["evm"];
     meta?: SignSession["meta"];
   },
@@ -51,6 +51,7 @@ export async function attachTapToApprove(
     safeJson: payload.safeJson,
     signedSafeJson: payload.signedSafeJson,
     signInputs: payload.signInputs,
+    l1Build: payload.l1Build,
     evm: payload.evm,
     meta: payload.meta,
   });
@@ -62,4 +63,16 @@ export async function attachTapToApprove(
     expiresAt: new Date(session.expiresAt).toISOString(),
     note: `Tap to approve in KasWare / Kastle (L1) or your EVM wallet. Link expires in ${SIGN_TTL_SEC / 60} minutes. Page never sees keys.`,
   };
+}
+
+export function utxoApiBaseFor(networkId: string, isTestnet: boolean): string {
+  if (networkId.includes("testnet-10") || (isTestnet && !networkId.includes("mainnet"))) {
+    return "https://api-tn10.kaspa.org";
+  }
+  return "https://api.kaspa.org";
+}
+
+export function kaspaNetworkFor(networkId: string, isTestnet: boolean): "testnet-10" | "mainnet" {
+  if (networkId.includes("testnet-10") || (isTestnet && !networkId.includes("mainnet"))) return "testnet-10";
+  return "mainnet";
 }

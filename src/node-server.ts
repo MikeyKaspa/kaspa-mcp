@@ -50,6 +50,34 @@ const httpServer = createServer(async (req, res) => {
       if (v) headers.set(k, Array.isArray(v) ? v.join(",") : v);
     }
 
+
+    // Static assets (kaspa-wasm + sign JS) for local parity with Workers assets
+    if (
+      url.pathname.startsWith("/kaspa-wasm/") ||
+      url.pathname === "/sign/app.js" ||
+      url.pathname === "/sign/app.css" ||
+      url.pathname === "/sign/l1-build.js"
+    ) {
+      const { readFileSync, existsSync } = await import("node:fs");
+      const { join } = await import("node:path");
+      const filePath = join(process.cwd(), "public", url.pathname.replace(/^\//, ""));
+      if (!existsSync(filePath)) {
+        res.writeHead(404);
+        res.end("asset not found");
+        return;
+      }
+      const ext = filePath.split(".").pop();
+      const types: Record<string, string> = {
+        js: "application/javascript; charset=utf-8",
+        css: "text/css; charset=utf-8",
+        wasm: "application/wasm",
+        ts: "text/plain",
+      };
+      res.writeHead(200, { "content-type": types[ext || ""] || "application/octet-stream" });
+      res.end(readFileSync(filePath));
+      return;
+    }
+
     if (url.pathname !== "/mcp") {
       const chunks: Buffer[] = [];
       for await (const chunk of req) chunks.push(chunk as Buffer);

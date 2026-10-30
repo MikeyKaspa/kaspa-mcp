@@ -7,6 +7,24 @@
 ## Payload
 Never includes private keys. Holds SafeJSON and/or EVM unsigned fields + network metadata.
 
+
+## Shared Worker (free tier) — browser build
+Workers cannot ship Node `kaspa-wasm` in the script. The web build is served from
+`/kaspa-wasm/*` as static assets (~11 MiB wasm; assets do not count toward script
+size; per-file limit 25 MiB). `l1_prepare_fund` / `l1_prepare_spend` store
+`l1Build` (params + bytecode + UTXO API base) in the sign session and return a
+tap link (`mode: browser_build`). The page (`/sign/l1-build.js`) fetches UTXOs
+from api.kaspa.org / api-tn10.kaspa.org, runs `createTransactions` / P2SH / unlock
+assembly in-browser, shows a summary derived from the built SafeJSON, then
+KasWare `signPskt` → `pushTx`.
+
+CSP on `/sign` includes `'unsafe-eval'` because official kaspa-wasm web glue uses
+`new Function` (wasm-bindgen); `'wasm-unsafe-eval'` alone is insufficient. Same
+wasm lineage as KasWare — preferred over a hand-rolled pure-JS builder.
+
+Playwright harness: `scripts/e2e-sign-browser.mjs` (mocks `window.kasware` with
+operator TN10 key; never prints secrets).
+
 ## Summary trust model
 `/api/sign/:id` re-derives the human summary with `summarizeL1SafeJson` / `summarizeEvmPrepared` from the stored tx. Agent text cannot mislabel amounts.
 

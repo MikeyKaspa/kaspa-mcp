@@ -46,3 +46,20 @@ export const L1_UNAUDITED_WARNING =
   "⚠️ UNAUDITED / USE AT YOUR OWN RISK: SilverScript templates and L1 prepare helpers are experimental, " +
   "not security-audited, and may lose funds. Mainnet = prepare unsigned SafeJSON only (KasWare/wallet signs). " +
   "This connector never accepts or stores mainnet private keys. Prefer testnet-10. No warranty.";
+
+/**
+ * True when Node kaspa-wasm loads.
+ * Shared Workers set KASPA_L1_BROWSER_BUILD=1 so prepare always returns
+ * browser_build + tap link (web wasm is a static asset, not in the script).
+ */
+export async function kaspaWasmAvailable(): Promise<boolean> {
+  const forceBrowser =
+    process.env.KASPA_L1_BROWSER_BUILD === "1" || process.env.KASPA_L1_BROWSER_BUILD === "true";
+  if (forceBrowser) return false;
+  try {
+    await loadKaspa();
+    return true;
+  } catch {
+    return false;
+  }
+}

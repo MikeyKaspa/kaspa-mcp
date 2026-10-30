@@ -10,6 +10,8 @@ workers_dev = true
 MCP_PUBLIC = "true"
 # Prepare-only mainnet L1 (unsigned SafeJSON). Never accept mainnet keys.
 KASPA_L1_MAINNET_WRITES = "1"
+# Force L1 prepare → browser_build (kaspa-wasm static assets).
+KASPA_L1_BROWSER_BUILD = "1"
 # Shared demo: enable per-IP limits. Self-hosters: omit or set false (off by default in code).
 RATE_LIMIT_ENABLED = "true"
 RATE_LIMIT_REQUESTS = "60"
@@ -44,3 +46,11 @@ period = 60
 binding = "SIGN_SESSIONS"
 id = "dc99577f3ba4452499cf5150e54797a6"
 preview_id = "b62028ef832f476d9abb756013a32516"
+
+# Static assets (kaspa-wasm web build). Not counted toward Worker script size.
+# Per-file limit 25 MiB; kaspa_bg.wasm ~11 MiB.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+# Worker handles API/MCP/sign pages; wasm JS served as assets.
+run_worker_first = ["/mcp", "/mcp/*", "/api/*", "/health", "/sign", "/sign/*", "!/sign/app.js", "!/sign/app.css", "!/sign/l1-build.js"]

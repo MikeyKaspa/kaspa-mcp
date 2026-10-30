@@ -1,0 +1,37 @@
+{
+  "at": "2026-10-30T23:54:48.753Z",
+  "base": "http://127.0.0.1:8787",
+  "results": [
+    {
+      "template": "tipjar",
+      "fundTxid": "00287ea553366dcf8c8b6fd677c4ede43fe654baf1701bc441489874af627658",
+      "fundExplorer": "https://tn10.kaspa.stream/transactions/00287ea553366dcf8c8b6fd677c4ede43fe654baf1701bc441489874af627658",
+      "spendTxid": "b39eeb926f8cae4fcd4b17eda18bbfc64a6abe546d0d28aa3324f854c54a3803",
+      "spendExplorer": "https://tn10.kaspa.stream/transactions/b39eeb926f8cae4fcd4b17eda18bbfc64a6abe546d0d28aa3324f854c54a3803",
+      "fundTap": "http://127.0.0.1:8787/sign/402cf74b66e3765328a51e42a1bf522a",
+      "spendTap": "http://127.0.0.1:8787/sign/7b87de2f470c48162d0120d8f3b9e48c",
+      "p2sh": "kaspatest:prq27l68ksdu9swyrwugw6atns3007jwa654fnqa3jqh6ley79c8uphjug3z5"
+    },
+    {
+      "template": "timeout_vault",
+      "fundTxid": "d47ef3a627e114556dc00f7736a33cd1c55241f51d2acbf334c5b11665c9be9b",
+      "fundExplorer": "https://tn10.kaspa.stream/transactions/d47ef3a627e114556dc00f7736a33cd1c55241f51d2acbf334c5b11665c9be9b",
+      "spendTxid": "08380f89f670a0d36d6290d298d0b142a768f4f8ab5915603ff4cd0d440bf9d0",
+      "spendExplorer": "https://tn10.kaspa.stream/transactions/08380f89f670a0d36d6290d298d0b142a768f4f8ab5915603ff4cd0d440bf9d0",
+      "fundTap": "http://127.0.0.1:8787/sign/8b99566677654894d57bb4a1cd677027",
+      "spendTap": "http://127.0.0.1:8787/sign/8f1615bda14d58f1b39b9f88e3cfc1a7",
+      "p2sh": "kaspatest:pz28a3lrr752nzac80mh237uef4yw8rwszstdzya9rp5d2a3dasmsnxzhhgc2"
+    },
+    {
+      "template": "escrow",
+      "fundTxid": "8e59aafbe87ee60b0d4ea507e52e9a999e09b6dae7fd71e228e459edd57b1285",
+      "fundExplorer": "https://tn10.kaspa.stream/transactions/8e59aafbe87ee60b0d4ea507e52e9a999e09b6dae7fd71e228e459edd57b1285",
+      "spendTxid": "d1bf8141a31918e8759b4eb56eee746ad15ba3984276ef00aee6fc8857e4fbd8",
+      "spendExplorer": "https://tn10.kaspa.stream/transactions/d1bf8141a31918e8759b4eb56eee746ad15ba3984276ef00aee6fc8857e4fbd8",
+      "fundTap": "http://127.0.0.1:8787/sign/5a179cfa75917aadabe223f9c2190fbd",
+      "spendTap": "http://127.0.0.1:8787/sign/745b84de70af88102d327acc6653b5c3",
+      "p2sh": "kaspatest:prjp7ujes0cdckye87ysgrkyx70ug753fu8fnyu0m96q74hwymdcygr0l30h4"
+    }
+  ],
+  "tipjarFundTapForMichael": "http://127.0.0.1:8787/sign/402cf74b66e3765328a51e42a1bf522a"
+}

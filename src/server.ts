@@ -18,8 +18,8 @@ import { listTemplates, getTemplate } from "./l1/templates.js";
 import { loadSilArtifact, entryOf } from "./l1/artifact.js";
 import { deriveP2shAddress } from "./l1/p2sh.js";
 import { prepareFund, prepareSpend, KASWARE_HINT } from "./l1/prepare.js";
-import { L1_UNAUDITED_WARNING } from "./l1/kaspa-sdk.js";
-import { attachTapToApprove } from "./sign/attach.js";
+import { L1_UNAUDITED_WARNING, kaspaWasmAvailable } from "./l1/kaspa-sdk.js";
+import { attachTapToApprove, utxoApiBaseFor, kaspaNetworkFor } from "./sign/attach.js";
 import { compileSilverscript, isSilvercAvailable, silvercCompileHint } from "./l1/compile.js";
 import { coerceBytecode } from "./l1/artifact.js";
 
@@ -697,14 +697,52 @@ export function createKaspaMcpServer(): McpServer {
     async (a) => {
       try {
         const network = getNetwork(a.network);
-        let bc: Uint8Array;
-        if (a.templateId) bc = getTemplate(a.templateId).loadedExample.bytecode;
-        else if (a.artifact) bc = loadSilArtifact(a.artifact, a.contractName).bytecode;
-        else if (a.bytecodeHex) bc = coerceBytecode(a.bytecodeHex);
-        else throw new Error("Provide templateId, artifact, or bytecodeHex");
+        let loadedBc: Uint8Array;
+        let loaded;
+        if (a.templateId) {
+          loaded = getTemplate(a.templateId).loadedExample;
+          loadedBc = loaded.bytecode;
+        } else if (a.artifact) {
+          loaded = loadSilArtifact(a.artifact, a.contractName);
+          loadedBc = loaded.bytecode;
+        } else if (a.bytecodeHex) {
+          loadedBc = coerceBytecode(a.bytecodeHex);
+        } else throw new Error("Provide templateId, artifact, or bytecodeHex");
+        const bytecodeHex = [...loadedBc].map((b) => b.toString(16).padStart(2, "0")).join("");
+        const l1Build = {
+          buildInBrowser: true as const,
+          kaspaNetwork: kaspaNetworkFor(network.id, network.isTestnet),
+          utxoApiBase: utxoApiBaseFor(network.id, network.isTestnet),
+          bytecodeHex,
+          fromAddress: a.fromAddress,
+          amountSompi: String(a.amountSompi),
+          priorityFeeSompi: a.priorityFeeSompi != null ? String(a.priorityFeeSompi) : undefined,
+        };
+        // Prefer browser-build session so shared Worker works without Node wasm.
+        const useNode = await kaspaWasmAvailable();
+        if (!useNode) {
+          const tapToApprove = await attachTapToApprove("l1-fund", network.id, {
+            l1Build,
+            meta: { templateId: a.templateId },
+          });
+          if (!tapToApprove) {
+            throw new Error("Sign session store unavailable — cannot return tapToApprove link");
+          }
+          return ok({
+            safety: SAFETY_BANNER,
+            warning: L1_UNAUDITED_WARNING,
+            mode: "browser_build",
+            networkId: network.id,
+            kaspaNetwork: l1Build.kaspaNetwork,
+            amountSompi: String(a.amountSompi),
+            fromAddress: a.fromAddress,
+            tapToApprove,
+            note: "Open tapToApprove.url — the page builds the fund tx with kaspa-wasm (static asset) and signs via KasWare signPskt→pushTx.",
+          });
+        }
         const prepared = await prepareFund({
           network,
-          bytecode: bc,
+          bytecode: loadedBc,
           fromAddress: a.fromAddress,
           amountSompi: BigInt(a.amountSompi),
           priorityFeeSompi: a.priorityFeeSompi != null ? BigInt(a.priorityFeeSompi) : undefined,
@@ -712,6 +750,7 @@ export function createKaspaMcpServer(): McpServer {
         const tapToApprove = await attachTapToApprove("l1-fund", network.id, {
           safeJson: prepared.safeJson,
           signInputs: prepared.kasware.signInputs,
+          l1Build,
           meta: { p2shAddress: prepared.p2shAddress, templateId: a.templateId },
         });
         return ok({ safety: SAFETY_BANNER, ...prepared, tapToApprove });
@@ -758,7 +797,43 @@ export function createKaspaMcpServer(): McpServer {
         else if (a.bytecodeHex) {
           throw new Error("bytecodeHex alone lacks ABI entries — pass artifact or templateId");
         } else throw new Error("Provide templateId or artifact");
-        entryOf(loaded, a.entry);
+        const entry = entryOf(loaded, a.entry);
+        const bytecodeHex = [...loaded.bytecode].map((b) => b.toString(16).padStart(2, "0")).join("");
+        const l1Build = {
+          buildInBrowser: true as const,
+          kaspaNetwork: kaspaNetworkFor(network.id, network.isTestnet),
+          utxoApiBase: utxoApiBaseFor(network.id, network.isTestnet),
+          bytecodeHex,
+          entryName: a.entry,
+          dispatchTag: entry.dispatch_tag,
+          entryParams: entry.params,
+          args: a.args,
+          destinationAddress: a.destinationAddress,
+          feeSompi: a.feeSompi != null ? String(a.feeSompi) : "300000",
+          outputAmountSompi: a.outputAmountSompi != null ? String(a.outputAmountSompi) : undefined,
+          p2shUtxo: {
+            outpoint: { transactionId: a.utxo.transactionId, index: a.utxo.index },
+            amount: String(a.utxo.amountSompi),
+            scriptPublicKey: a.utxo.scriptPublicKey,
+          },
+        };
+        const useNode = await kaspaWasmAvailable();
+        if (!useNode) {
+          const tapToApprove = await attachTapToApprove("l1-spend", network.id, {
+            l1Build,
+            meta: { entry: a.entry, templateId: a.templateId },
+          });
+          if (!tapToApprove) throw new Error("Sign session store unavailable");
+          return ok({
+            safety: SAFETY_BANNER,
+            warning: L1_UNAUDITED_WARNING,
+            mode: "browser_build",
+            networkId: network.id,
+            entry: a.entry,
+            tapToApprove,
+            note: "Open tapToApprove.url — page builds spend with kaspa-wasm. SilverScript unlock needs a signer harness or Node prepareSpend; KasWare signPskt alone cannot fill covenant unlocks (use pushTx on pre-filled).",
+          });
+        }
         const prepared = await prepareSpend({
           network,
           loaded,
@@ -778,6 +853,7 @@ export function createKaspaMcpServer(): McpServer {
           safeJson: prepared.safeJson,
           signedSafeJson: prepared.signedSafeJson,
           signInputs: prepared.kasware.signInputs,
+          l1Build,
           meta: { p2shAddress: prepared.p2shAddress, entry: a.entry, templateId: a.templateId },
         });
         return ok({ safety: SAFETY_BANNER, ...prepared, tapToApprove });
