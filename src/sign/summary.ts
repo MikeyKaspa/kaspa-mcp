@@ -11,6 +11,8 @@ export interface TxSummaryLine {
 export interface DerivedSummary {
   title: string;
   lines: TxSummaryLine[];
+  /** Above-the-fold rows (destination / amount / fee) — no Details click needed. */
+  plainLines?: TxSummaryLine[];
   /** sompi or wei strings when known */
   warnings: string[];
 }
@@ -88,7 +90,15 @@ export function summarizeL1SafeJson(
   if (opts.kind === "l1-spend" && unsignedInputs === 0) {
     lines.push({ label: "Status", value: "Unlock already filled — Approve will broadcast via pushTx only" });
   }
-  return { title, lines, warnings };
+  const plainLines: TxSummaryLine[] = [];
+  const p2shOut = outLines.find((l) => /P2SH/i.test(l.label));
+  if (opts.kind === "l1-fund" && p2shOut) {
+    plainLines.push({ label: "Amount to covenant", value: p2shOut.value });
+  }
+  if (fee > 0n) plainLines.push({ label: "Fee", value: sompiToKas(fee) });
+  plainLines.push({ label: "Network", value: opts.networkLabel });
+
+  return { title, lines, plainLines, warnings };
 }
 
 export function summarizeEvmPrepared(

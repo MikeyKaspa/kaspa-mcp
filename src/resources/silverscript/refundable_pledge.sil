@@ -1,0 +1,23 @@
+pragma silverscript ^0.1.0;
+
+// Per-backer refundable pledge (Stag Hunt / TransferWithTimeout pattern).
+// HONEST LIMIT: this is NOT a SoftCap-style shared goal across many backers.
+// Each contribution is its own P2SH UTXO. After deadline the BACKER reclaim;
+// before deadline the OWNER (campaign) can claim. There is no on-chain "sum of
+// all pledges >= goal → lock refunds" without a separate attestation/oracle or
+// a single pooled UTXO design. SoftCapJar still cannot auto-refund contributors
+// (see softcap.sil). Primary source: kaspanet/silverscript TransferWithTimeout.
+contract RefundablePledge(byte[32] ownerPkh, byte[32] backerPkh, temporal deadline) {
+    // Campaign owner claims the pledge (any time before reclaim path is used).
+    entry claim(pubkey pk, sig s) {
+        require(blake2b(byte[](pk)) == ownerPkh);
+        require(checkSig(s, pk));
+    }
+
+    // Backer reclaim after deadline if owner never claimed this UTXO.
+    entry reclaim(pubkey pk, sig s) {
+        require(blake2b(byte[](pk)) == backerPkh);
+        require(checkSig(s, pk));
+        require(tx.time >= deadline);
+    }
+}
