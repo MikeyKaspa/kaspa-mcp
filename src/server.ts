@@ -19,7 +19,7 @@ import { loadSilArtifact, entryOf } from "./l1/artifact.js";
 import { deriveP2shAddress } from "./l1/p2sh.js";
 import { prepareFund, prepareSpend, KASWARE_HINT } from "./l1/prepare.js";
 import { L1_UNAUDITED_WARNING, kaspaWasmAvailable } from "./l1/kaspa-sdk.js";
-import { attachTapToApprove, utxoApiBaseFor, kaspaNetworkFor } from "./sign/attach.js";
+import { attachTapToApprove, utxoApiBaseFor, kaspaNetworkFor, contractLabelFor } from "./sign/attach.js";
 import { compileSilverscript, isSilvercAvailable, silvercCompileHint } from "./l1/compile.js";
 import { coerceBytecode } from "./l1/artifact.js";
 
@@ -723,7 +723,10 @@ export function createKaspaMcpServer(): McpServer {
         if (!useNode) {
           const tapToApprove = await attachTapToApprove("l1-fund", network.id, {
             l1Build,
-            meta: { templateId: a.templateId },
+            meta: {
+              templateId: a.templateId,
+              contractName: contractLabelFor(a.templateId, a.contractName),
+            },
           });
           if (!tapToApprove) {
             throw new Error("Sign session store unavailable — cannot return tapToApprove link");
@@ -751,7 +754,11 @@ export function createKaspaMcpServer(): McpServer {
           safeJson: prepared.safeJson,
           signInputs: prepared.kasware.signInputs,
           l1Build,
-          meta: { p2shAddress: prepared.p2shAddress, templateId: a.templateId },
+          meta: {
+            p2shAddress: prepared.p2shAddress,
+            templateId: a.templateId,
+            contractName: contractLabelFor(a.templateId, a.contractName),
+          },
         });
         return ok({ safety: SAFETY_BANNER, ...prepared, tapToApprove });
       } catch (e) {
@@ -821,7 +828,11 @@ export function createKaspaMcpServer(): McpServer {
         if (!useNode) {
           const tapToApprove = await attachTapToApprove("l1-spend", network.id, {
             l1Build,
-            meta: { entry: a.entry, templateId: a.templateId },
+            meta: {
+              entry: a.entry,
+              templateId: a.templateId,
+              contractName: contractLabelFor(a.templateId, a.contractName),
+            },
           });
           if (!tapToApprove) throw new Error("Sign session store unavailable");
           return ok({
@@ -854,7 +865,12 @@ export function createKaspaMcpServer(): McpServer {
           signedSafeJson: prepared.signedSafeJson,
           signInputs: prepared.kasware.signInputs,
           l1Build,
-          meta: { p2shAddress: prepared.p2shAddress, entry: a.entry, templateId: a.templateId },
+          meta: {
+            p2shAddress: prepared.p2shAddress,
+            entry: a.entry,
+            templateId: a.templateId,
+            contractName: contractLabelFor(a.templateId, a.contractName),
+          },
         });
         return ok({ safety: SAFETY_BANNER, ...prepared, tapToApprove });
       } catch (e) {

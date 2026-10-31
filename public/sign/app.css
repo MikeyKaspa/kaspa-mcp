@@ -1,20 +1,131 @@
-:root { color-scheme: dark light; --bg:#0b1220; --card:#121a2b; --fg:#e8eefc; --muted:#9aa8c7; --accent:#49eacb; --danger:#ff6b7a; --btn:#1e2a44; }
+:root {
+  color-scheme: dark light;
+  --bg: #0b1220;
+  --card: #121a2b;
+  --fg: #e8eefc;
+  --muted: #9aa8c7;
+  --accent: #49eacb;
+  --danger: #ff6b7a;
+  --btn: #1e2a44;
+  --testnet: #3d7eff;
+  --mainnet: #ff8a3d;
+}
 @media (prefers-color-scheme: light) {
-  :root { --bg:#f4f7fb; --card:#fff; --fg:#102038; --muted:#5a6b88; --btn:#e8eef8; }
+  :root {
+    --bg: #f4f7fb;
+    --card: #fff;
+    --fg: #102038;
+    --muted: #5a6b88;
+    --btn: #e8eef8;
+  }
 }
 * { box-sizing: border-box; }
-body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--fg); }
-.wrap { max-width: 28rem; margin: 0 auto; padding: 1.25rem; }
-h1 { font-size: 1.35rem; margin: 0 0 .35rem; }
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  -webkit-text-size-adjust: 100%;
+}
+.wrap { max-width: 28rem; margin: 0 auto; padding: 1.1rem 1.15rem 2rem; }
+.toprow { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: .35rem; }
+.badge {
+  display: inline-block;
+  font-size: .7rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  padding: .25rem .55rem;
+  border-radius: 999px;
+  background: var(--testnet);
+  color: #fff;
+}
+.badge.mainnet { background: var(--mainnet); color: #1a0d00; }
+.badge.testnet { background: var(--testnet); }
+#contract {
+  font-size: .8rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+h1 {
+  font-size: 1.35rem;
+  line-height: 1.25;
+  margin: .35rem 0 .5rem;
+  font-weight: 800;
+}
 .sub, .fine { color: var(--muted); font-size: .85rem; }
-.warn { background: #3a1520; color: #ffc9d0; border: 1px solid var(--danger); padding: .75rem; border-radius: .5rem; margin: .75rem 0; font-size: .9rem; }
-.status { margin: 1rem 0; font-weight: 600; }
-.summary { background: var(--card); border-radius: .75rem; padding: .75rem 1rem; margin: 0 0 1rem; }
-.summary dt { color: var(--muted); font-size: .75rem; margin-top: .55rem; }
-.summary dd { margin: .1rem 0 0; font-size: .95rem; word-break: break-all; }
+.warn {
+  background: #3a1520;
+  color: #ffc9d0;
+  border: 1px solid var(--danger);
+  padding: .75rem;
+  border-radius: .5rem;
+  margin: .75rem 0;
+  font-size: .9rem;
+}
+.plain {
+  background: var(--card);
+  border-radius: .85rem;
+  padding: .85rem 1rem;
+  margin: .75rem 0 1rem;
+}
+.plain-row {
+  display: flex;
+  justify-content: space-between;
+  gap: .75rem;
+  padding: .45rem 0;
+  border-bottom: 1px solid rgba(154, 168, 199, 0.18);
+  font-size: 1rem;
+}
+.plain-row:last-child { border-bottom: 0; }
+.plain-label { color: var(--muted); font-weight: 600; flex-shrink: 0; }
+.plain-value { font-weight: 700; text-align: right; word-break: break-word; }
+.status { margin: .85rem 0; font-weight: 600; font-size: .95rem; }
+details.details {
+  background: var(--card);
+  border-radius: .75rem;
+  padding: .55rem .85rem .75rem;
+  margin: 0 0 1rem;
+}
+details.details > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: .85rem;
+  font-weight: 700;
+  list-style: none;
+  padding: .25rem 0;
+}
+details.details > summary::-webkit-details-marker { display: none; }
+.summary { margin: .35rem 0 0; }
+.summary dt { color: var(--muted); font-size: .72rem; margin-top: .55rem; }
+.summary dd { margin: .1rem 0 0; font-size: .88rem; word-break: break-all; }
 .actions { display: flex; gap: .5rem; flex-wrap: wrap; }
-button { flex: 1; min-width: 8rem; padding: .85rem 1rem; border-radius: .65rem; border: 0; background: var(--btn); color: var(--fg); font-weight: 700; font-size: 1rem; }
+button {
+  flex: 1;
+  min-width: 8rem;
+  min-height: 3rem;
+  padding: .85rem 1rem;
+  border-radius: .65rem;
+  border: 0;
+  background: var(--btn);
+  color: var(--fg);
+  font-weight: 700;
+  font-size: 1rem;
+  touch-action: manipulation;
+}
 button:disabled { opacity: .45; }
 #approve { background: var(--accent); color: #06261f; }
-.result { background: var(--card); padding: .75rem; border-radius: .5rem; overflow: auto; font-size: .8rem; }
+.result {
+  background: var(--card);
+  padding: .75rem;
+  border-radius: .5rem;
+  overflow: auto;
+  font-size: .8rem;
+  margin-top: .75rem;
+}
 a { color: var(--accent); }
+@media (max-width: 380px) {
+  h1 { font-size: 1.2rem; }
+  .actions { flex-direction: column; }
+  button { width: 100%; }
+}

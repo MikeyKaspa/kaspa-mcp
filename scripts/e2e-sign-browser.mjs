@@ -89,12 +89,21 @@ async function approveInBrowser(page, tapUrl, privateKeyHex) {
     window.kasware = {
       requestAccounts: async () => ["kaspatest:mock"],
       getNetwork: async () => "kaspa_testnet_10",
-      signPskt: async ({ txJsonString }) => {
+      getPublicKey: async () => {
+        const mod = await import("/kaspa-wasm/kaspa.js");
+        await mod.default({ module_or_path: "/kaspa-wasm/kaspa_bg.wasm" });
+        const key = new mod.PrivateKey(String(window.__SIGN_TEST_KEY__).replace(/^0x/, ""));
+        // 33-byte compressed — page strips to x-only via toXOnlyHex
+        return key.toPublicKey().toString();
+      },
+      signPskt: async ({ txJsonString, options }) => {
+        // Mirrors KasWare: sign requested inputs' sighash with account key (even P2SH UTXOs)
         const mod = await import("/kaspa-wasm/kaspa.js");
         await mod.default({ module_or_path: "/kaspa-wasm/kaspa_bg.wasm" });
         const key = new mod.PrivateKey(String(window.__SIGN_TEST_KEY__).replace(/^0x/, ""));
         const tx = mod.Transaction.deserializeFromSafeJSON(txJsonString);
-        for (let i = 0; i < tx.inputs.length; i++) {
+        const indices = options?.signInputs?.map((s) => s.index) ?? [...Array(tx.inputs.length).keys()];
+        for (const i of indices) {
           const sig = mod.createInputSignature(tx, i, key, mod.SighashType.All);
           tx.inputs[i].signatureScript = sig;
         }
@@ -127,7 +136,7 @@ async function approveInBrowser(page, tapUrl, privateKeyHex) {
   const deadline = Date.now() + 120000;
   for (;;) {
     const s = await page.locator("#status").innerText();
-    if (/Fund covenant|Spend covenant|Ready|Connected/i.test(s) && !/Building|Loading/i.test(s)) break;
+    if (/Fund covenant|Spend covenant|Send |Withdraw|Ready|Connected|Tip Jar|TimeoutVault|Escrow/i.test(s) && !/Building|Loading/i.test(s)) break;
     if (/failed|error/i.test(s) && !/Building/i.test(s)) throw new Error("status: " + s);
     if (Date.now() > deadline) throw new Error("timeout waiting build: " + s);
     await page.waitForTimeout(500);
@@ -232,6 +241,7 @@ async function main() {
       amountSompi: "100000000",
       artifact: compiled.artifact,
       bytecodeHex: compiled.bytecodeHex,
+      contractName: tmpl.id === "tipjar" ? "TipJar" : tmpl.id === "timeout_vault" ? "TimeoutVault" : tmpl.id === "escrow" ? "Escrow" : tmpl.id,
     });
     if (!fund.tapToApprove?.url) throw new Error("no tap link fund");
     console.log("fund tap", fund.tapToApprove.url);
@@ -264,6 +274,7 @@ async function main() {
       utxo,
       feeSompi: "300000",
       outputAmountSompi: String(BigInt(utxo.amountSompi) - 300000n),
+      contractName: tmpl.id === "tipjar" ? "TipJar" : tmpl.id === "timeout_vault" ? "TimeoutVault" : tmpl.id === "escrow" ? "Escrow" : tmpl.id,
     });
     console.log("spend tap", spend.tapToApprove.url);
     const spendRes = await approveInBrowser(page, spend.tapToApprove.url, privateKeyHex);

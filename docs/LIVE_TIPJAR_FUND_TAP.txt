@@ -1,0 +1,5 @@
+network=kaspa-l1-testnet-10
+mode=browser_build
+tap=https://kaspa-mcp.kaspa-mcp.workers.dev/sign/2378e5d26aa4bb9bee22e8f34cbd3456
+at=2026-10-30T23:57:15Z
+note=Fresh tipjar fund (1 KAS) for real KasWare; expires ~15m from create. Live page build verified (Fund covenant); not submitted.

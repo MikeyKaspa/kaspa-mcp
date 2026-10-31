@@ -76,3 +76,14 @@ export function kaspaNetworkFor(networkId: string, isTestnet: boolean): "testnet
   if (networkId.includes("testnet-10") || (isTestnet && !networkId.includes("mainnet"))) return "testnet-10";
   return "mainnet";
 }
+
+export function contractLabelFor(templateId?: string | null, contractName?: string | null): string | undefined {
+  if (contractName) return contractName;
+  if (!templateId) return undefined;
+  const map: Record<string, string> = {
+    tipjar: "TipJar",
+    timeout_vault: "TimeoutVault",
+    escrow: "Escrow",
+  };
+  return map[templateId] || templateId;
+}

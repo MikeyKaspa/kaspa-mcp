@@ -28,6 +28,30 @@ operator TN10 key; never prints secrets).
 ## Summary trust model
 `/api/sign/:id` re-derives the human summary with `summarizeL1SafeJson` / `summarizeEvmPrepared` from the stored tx. Agent text cannot mislabel amounts.
 
+
+## One-tap TipJar withdraw (KasWare)
+Flow on `/sign` for `l1-spend` (all 3 templates with a user `sig` param):
+
+1. Page builds **unsigned** P2SH spend SafeJSON (browser kaspa-wasm).
+2. `kasware.signPskt({ txJsonString, options: { signInputs: [{ index: 0, sighashType: 1 }] } })`
+   — extension `wallet.ts` `signPskt` (~824–901) deserializes SafeJSON and calls
+   `walletSignTransaction` → `signSchnorrTransaction` with **`verifySig: false`**, signing
+   the **requested input indices** with the account key. Docs say the wallet “only signs
+   inputs that belong to” the account, but the **source signs whatever indices you pass**
+   (still the real input sighash, which commits to the P2SH scriptPublicKey).
+3. Page reads `inputs[0].signatureScript` (Schnorr sighash signature, same encoding as
+   `createInputSignature`), builds SilverScript unlock (`pk` + `sig` + 4-byte dispatch tag)
+   + redeem via `payToScriptHashSignatureScript`, then `kasware.pushTx`.
+4. **`signMessage` is not used** — it is not a transaction sighash.
+
+TipJar owner withdraw is one KasWare approval after opening the tap link (Approve/Withdraw).
+
+### What KasWare still cannot do alone
+- It does **not** assemble SilverScript unlock / redeem scripts (KCC-20 docs: dApp fills
+  covenant argument scripts; wallet signs open P2PK funding inputs for KCC-20).
+- Our page does the unlock wrap after `signPskt`. Without that wrap, `pushTx` of a
+  raw P2PK-style `signatureScript` on a P2SH input would fail script execution.
+
 ## KasWare (source-checked)
 - `requestAccounts` — docs + `pageProvider/index.ts`
 - `signPskt({ txJsonString, options })` — `wallet.ts` deserializeFromSafeJSON → walletSignTransaction → serializeToSafeJSON

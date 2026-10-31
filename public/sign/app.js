@@ -2,10 +2,15 @@
   var id = window.__SIGN_ID__;
   var statusEl = document.getElementById("status");
   var warnEl = document.getElementById("warn");
+  var plainEl = document.getElementById("plain");
   var summaryEl = document.getElementById("summary");
+  var badgeEl = document.getElementById("badge");
+  var headlineEl = document.getElementById("headline");
+  var contractEl = document.getElementById("contract");
   var resultEl = document.getElementById("result");
   var connectBtn = document.getElementById("connect");
   var approveBtn = document.getElementById("approve");
+  var l1Mod = null;
 
   function status(t) { statusEl.textContent = t; }
   function escapeHtml(s) {
@@ -18,14 +23,37 @@
     if (window.kastle) return { name: "Kastle", api: "kastle" };
     return null;
   }
+
   function renderSummary(derived) {
+    if (headlineEl) headlineEl.textContent = derived.title || "Tap to approve";
+    if (badgeEl) {
+      badgeEl.hidden = false;
+      badgeEl.textContent = derived.networkBadge || (session && session.isMainnet ? "Mainnet" : "Testnet");
+      badgeEl.className = "badge " + ((derived.networkBadge || "").toLowerCase() === "mainnet" || (session && session.isMainnet) ? "mainnet" : "testnet");
+    }
+    if (contractEl) {
+      if (derived.contractName) {
+        contractEl.hidden = false;
+        contractEl.textContent = derived.contractName;
+      } else {
+        contractEl.hidden = true;
+      }
+    }
+    if (plainEl) {
+      plainEl.innerHTML = (derived.plainLines || []).map(function (l) {
+        return "<div class=\"plain-row\"><span class=\"plain-label\">" + escapeHtml(l.label) + "</span><span class=\"plain-value\">" + escapeHtml(l.value) + "</span></div>";
+      }).join("");
+    }
     summaryEl.innerHTML = (derived.lines || []).map(function (l) {
       return "<dt>" + escapeHtml(l.label) + "</dt><dd>" + escapeHtml(l.value) + "</dd>";
     }).join("");
     if (derived.warnings && derived.warnings.length) {
       warnEl.hidden = false;
       warnEl.textContent = derived.warnings.join(" ");
+    } else {
+      warnEl.hidden = true;
     }
+    if (derived.primaryAction) approveBtn.textContent = derived.primaryAction;
     status(derived.title || "Ready");
   }
 
@@ -54,30 +82,30 @@
       session = body.session;
       if (!session) throw new Error("Unknown or expired sign session");
       if (session.l1Build && session.l1Build.buildInBrowser) {
-        status("Building transaction in browser (kaspa-wasm)…");
+        status("Building transaction…");
         return import("/sign/l1-build.js").then(function (mod) {
+          l1Mod = mod;
           var p =
             session.kind === "l1-fund"
               ? mod.buildFundTx(session.l1Build)
               : mod.buildSpendTx(session.l1Build);
           return p.then(function (b) {
             built = b;
-            var title =
-              session.kind === "l1-fund"
-                ? "Fund covenant on " + session.networkLabel
-                : "Spend covenant on " + session.networkLabel;
             var json = b.signedSafeJson || b.safeJson;
             var derived = mod.summarizeBuiltSafeJson(json, {
-              title: title,
+              kind: session.kind,
+              title: undefined,
               networkLabel: session.networkLabel,
               isMainnet: session.isMainnet,
+              contractName: session.meta && session.meta.contractName,
+              templateId: session.meta && session.meta.templateId,
+              p2shAddress: b.p2shAddress || (session.meta && session.meta.p2shAddress),
+              entryName: session.l1Build.entryName || (session.meta && session.meta.entry),
             });
-            if (b.p2shAddress) derived.lines.unshift({ label: "P2SH", value: b.p2shAddress });
-            if (b.mode === "unsigned_needs_unlock") {
-              derived.warnings = (derived.warnings || []).concat([b.note || "Unlock not filled"]);
-            }
             renderSummary(derived);
             connectBtn.disabled = false;
+            // One-tap path: enable Approve when wallet already injected
+            if (detectL1()) approveBtn.disabled = false;
           }).catch(function (e) {
             status("Build failed: " + (e && e.message || e));
             throw e;
@@ -94,6 +122,16 @@
         signInputs: session.signInputs,
       };
       connectBtn.disabled = false;
+      if (detectL1()) approveBtn.disabled = false;
+    });
+  }
+
+  function resolveXonly() {
+    if (!window.kasware || typeof window.kasware.getPublicKey !== "function") {
+      return Promise.reject(new Error("KasWare getPublicKey unavailable"));
+    }
+    return window.kasware.getPublicKey().then(function (pk) {
+      return l1Mod.toXOnlyHex(pk);
     });
   }
 
@@ -123,26 +161,63 @@
     });
   }
 
+  function approveL1SpendKasware() {
+    // One KasWare approval: signPskt (real sighash) → wrap unlock → pushTx
+    var json = built.safeJson;
+    if (!json) return Promise.reject(new Error("Missing SafeJSON — build failed"));
+    var opts = { signInputs: built.signInputs || [{ index: 0, sighashType: 1 }] };
+    status("Approve signature in KasWare…");
+    return window.kasware.requestAccounts().then(function () {
+      return window.kasware.signPskt({ txJsonString: json, options: opts });
+    }).then(function (partial) {
+      status("Wrapping covenant unlock…");
+      return resolveXonly().then(function (xonly) {
+        return l1Mod.finalizeCovenantSpend(session.l1Build, partial, { xonlyPubkeyHex: xonly });
+      });
+    }).then(function (finalized) {
+      built.signedSafeJson = finalized.signedSafeJson;
+      status("Broadcasting…");
+      return window.kasware.pushTx(finalized.signedSafeJson);
+    });
+  }
+
   function approveL1() {
     var w = detectL1();
     if (!w) return Promise.reject(new Error("No L1 wallet"));
-    var signed = built && built.signedSafeJson;
-    if (signed) {
-      if (w.api === "kasware") return window.kasware.pushTx(signed);
-      if (window.kastle && window.kastle.signAndBroadcastTx) {
-        return Promise.resolve(window.kastle.getNetwork ? window.kastle.getNetwork() : session.networkId).then(
-          function (net) { return window.kastle.signAndBroadcastTx(net, signed); },
-        );
-      }
+
+    // Already fully unlocked (rare)
+    if (built && built.signedSafeJson && built.mode === "signed_ready_for_pushTx") {
+      if (w.api === "kasware") return window.kasware.pushTx(built.signedSafeJson);
     }
+
+    // Spend: KasWare signPskt → finalize unlock → pushTx
+    if (session.kind === "l1-spend" && session.l1Build && w.api === "kasware") {
+      return approveL1SpendKasware();
+    }
+
+    var signed = built && built.signedSafeJson;
+    if (signed && session.kind !== "l1-spend") {
+      if (w.api === "kasware") return window.kasware.pushTx(signed);
+    }
+
     var json = built && built.safeJson;
     if (!json) return Promise.reject(new Error("Missing SafeJSON — build failed"));
     if (w.api === "kasware") {
       var opts =
         built.signInputs && built.signInputs.length ? { signInputs: built.signInputs } : undefined;
-      return window.kasware.signPskt({ txJsonString: json, options: opts }).then(function (s) {
+      return window.kasware.requestAccounts().then(function () {
+        return window.kasware.signPskt({ txJsonString: json, options: opts });
+      }).then(function (s) {
         return window.kasware.pushTx(s);
       });
+    }
+    // Kastle: prefer signAndBroadcastTx; covenant unlock wrapping not implemented for Kastle yet
+    if (session.kind === "l1-spend") {
+      return Promise.reject(
+        new Error(
+          "Kastle one-tap SilverScript spend not wired — use KasWare (signPskt → unlock wrap → pushTx)",
+        ),
+      );
     }
     return Promise.resolve(window.kastle.getNetwork ? window.kastle.getNetwork() : "testnet-10").then(
       function (net) {
