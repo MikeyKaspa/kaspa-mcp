@@ -33,7 +33,7 @@ function isP2shScript(spk: string): boolean {
 /** Parse Kaspa SafeJSON from kaspa-wasm serializeToSafeJSON. */
 export function summarizeL1SafeJson(
   safeJson: string,
-  opts: { kind: "l1-fund" | "l1-spend"; networkLabel: string; isMainnet: boolean },
+  opts: { kind: "l1-fund" | "l1-spend" | "l1-send"; networkLabel: string; isMainnet: boolean },
 ): DerivedSummary {
   const tx = JSON.parse(safeJson) as {
     inputs?: Array<{
@@ -71,7 +71,9 @@ export function summarizeL1SafeJson(
   const title =
     opts.kind === "l1-fund"
       ? `Fund covenant on ${opts.networkLabel}`
-      : `Spend covenant on ${opts.networkLabel}`;
+      : opts.kind === "l1-send"
+        ? `Send KAS on ${opts.networkLabel}`
+        : `Spend covenant on ${opts.networkLabel}`;
 
   const lines: TxSummaryLine[] = [
     { label: "Network", value: opts.networkLabel },

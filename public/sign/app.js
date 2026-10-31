@@ -15,6 +15,10 @@
   var connectBtn = document.getElementById("connect");
   var approveBtn = document.getElementById("approve");
   var l1Mod = null;
+  var qwMod = null;
+  var qwUnlocked = null;
+  var useQuickWallet = false;
+  var fundPollTimer = null;
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, function (c) {
@@ -151,6 +155,7 @@
     return list;
   }
   function detectL1() {
+    if (useQuickWallet && qwUnlocked) return { id: "quick", name: "Quick-start", api: "quick" };
     var w = detectWallets();
     return w[0] || null;
   }
@@ -175,9 +180,9 @@
       lines.push("<strong>No injected wallet detected</strong> in this browser.");
     }
     lines.push(
-      '<p class="help-block"><strong>Kaspium</strong> and <strong>KaChat</strong> (iPhone) cannot sign this page: ' +
-        "no dApp browser / WalletConnect / PSKT API. " +
-        "Use <strong>KasWare</strong> or <strong>Kastle</strong> on desktop/Android.</p>",
+      '<p class="help-block"><strong>Quick-start wallet</strong> works on iPhone Safari (Face ID / PIN). ' +
+        "Or use <strong>KasWare</strong> / <strong>Kastle</strong> / <strong>Kaspire</strong>. " +
+        "Kaspium/KaChat cannot inject into this page — use Quick-start instead.</p>",
     );
     lines.push(
       '<p class="help-block fine">Full matrix: docs/WALLET_COMPATIBILITY.md. ' +
@@ -264,7 +269,9 @@
             var p =
               session.kind === "l1-fund"
                 ? mod.buildFundTx(session.l1Build)
-                : mod.buildSpendTx(session.l1Build);
+                : session.kind === "l1-send"
+                  ? mod.buildPaymentTx(session.l1Build)
+                  : mod.buildSpendTx(session.l1Build);
             return p.then(function (b) {
               built = b;
               var expected =
@@ -301,9 +308,7 @@
               renderSummary(derived);
               connectBtn.disabled = false;
               if (detectL1()) approveBtn.disabled = false;
-              else if (isIos()) {
-                status("No injectable wallet on iOS Safari — see wallet help");
-              }
+              return initQuickWalletUi();
             });
           })
           .catch(function (e) {
@@ -320,6 +325,7 @@
       connectBtn.disabled = false;
       if (detectL1()) approveBtn.disabled = false;
       renderWalletHelp();
+      return initQuickWalletUi();
     });
   }
 
@@ -349,16 +355,20 @@
 
   function connect() {
     if (!session) return Promise.resolve();
-    if (session.kind === "l1-fund" || session.kind === "l1-spend") {
+    if (session.kind === "l1-fund" || session.kind === "l1-spend" || session.kind === "l1-send") {
       var w = detectL1();
       if (!w) {
         return Promise.reject(
           new Error(
-            isIos()
-              ? "No Kaspa dApp wallet injected. Kaspium/KaChat cannot sign this page. Use KasWare or Kastle on desktop/Android."
-              : "Install KasWare, Kastle, or Kaspire extension (or open in their in-app browser)",
+            "Create or unlock the Quick-start wallet on this page, or install KasWare / Kastle / Kaspire.",
           ),
         );
+      }
+      if (w.api === "quick") {
+        status("Quick-start wallet ready: " + (qwUnlocked && qwUnlocked.address ? qwUnlocked.address : ""));
+        showWalletCue(false);
+        approveBtn.disabled = false;
+        return Promise.resolve();
       }
       status("Check your wallet popup…", "signing");
       if (w.api === "kasware") {
@@ -419,6 +429,26 @@
     if (!json) return Promise.reject(new Error("Missing SafeJSON"));
     var opts = { signInputs: built.signInputs || [{ index: 0, sighashType: 1 }] };
 
+    if (w.api === "quick") {
+      status("Approve with Quick-start…", "signing");
+      return qwMod
+        .assertMainnetReady()
+        .catch(function (e) {
+          if (String(e && e.message) === "BACKUP_REQUIRED") throw new Error("Save your Quick-start backup before mainnet spends");
+          throw e;
+        })
+        .then(function () {
+          return qwMod.signPsktLike(json, opts.signInputs);
+        })
+        .then(function (partial) {
+          return approveSpendWithPartial(partial, Promise.resolve(qwMod.xonlyHex()));
+        })
+        .then(function (finalized) {
+          status("Broadcasting…");
+          showWalletCue(false);
+          return qwMod.submitSigned(finalized.signedSafeJson, session.l1Build.kaspaNetwork);
+        });
+    }
     if (w.api === "kasware") {
       status("Check your wallet popup…", "signing");
       return window.kasware
@@ -482,6 +512,22 @@
     var json = built.safeJson;
     if (!json) return Promise.reject(new Error("Missing SafeJSON"));
 
+    if (w.api === "quick") {
+      status("Approve with Quick-start…", "signing");
+      return qwMod
+        .assertMainnetReady()
+        .catch(function (e) {
+          if (String(e && e.message) === "BACKUP_REQUIRED") throw new Error("Save your Quick-start backup before mainnet use");
+          throw e;
+        })
+        .then(function () {
+          return qwMod.signAndPushSafeJson(json, built.signInputs, session.l1Build.kaspaNetwork);
+        })
+        .then(function (txid) {
+          showWalletCue(false);
+          return txid;
+        });
+    }
     if (w.api === "kasware") {
       var opts = built.signInputs && built.signInputs.length ? { signInputs: built.signInputs } : undefined;
       status("Check your wallet popup…", "signing");
@@ -519,9 +565,11 @@
     if (built && built.signedSafeJson && built.mode === "signed_ready_for_pushTx") {
       var w = detectL1();
       if (w && w.api === "kasware") return window.kasware.pushTx(built.signedSafeJson);
+      if (w && w.api === "quick") return qwMod.submitSigned(built.signedSafeJson, session.l1Build && session.l1Build.kaspaNetwork);
       return l1Mod.submitSignedTx(built.signedSafeJson, session.l1Build && session.l1Build.kaspaNetwork);
     }
     if (session.kind === "l1-spend" && session.l1Build) return approveL1Spend();
+    if (session.kind === "l1-send" && session.l1Build) return approveL1Fund();
     return approveL1Fund();
   }
 
@@ -543,7 +591,7 @@
 
   function approve() {
     status("Check your wallet popup…", "signing");
-    var p = session.kind === "l1-fund" || session.kind === "l1-spend" ? approveL1() : approveEvm();
+    var p = session.kind === "l1-fund" || session.kind === "l1-spend" || session.kind === "l1-send" ? approveL1() : approveEvm();
     return p.then(function (txid) {
       return fetch("/api/sign/" + id + "/explorer?txid=" + encodeURIComponent(txid))
         .then(function (r) {
@@ -554,6 +602,338 @@
           showSuccess(txid, exp);
         });
     });
+  }
+
+
+  function $(id) { return document.getElementById(id); }
+
+  function setHidden(el, hid) {
+    if (!el) return;
+    el.hidden = !!hid;
+  }
+
+  function networkOfSession() {
+    return (session && session.l1Build && session.l1Build.kaspaNetwork) || (session && session.isMainnet ? "mainnet" : "testnet-10");
+  }
+
+  function utxoApiOfSession() {
+    return (session && session.l1Build && session.l1Build.utxoApiBase) || (networkOfSession() === "mainnet" ? "https://api.kaspa.org" : "https://api-tn10.kaspa.org");
+  }
+
+  function refreshApproveEnabled() {
+    if (detectL1()) approveBtn.disabled = false;
+  }
+
+  async function initQuickWalletUi() {
+    var panel = $("quickWallet");
+    if (!panel) return;
+    if (!(session && (session.kind === "l1-fund" || session.kind === "l1-spend" || session.kind === "l1-send"))) {
+      setHidden(panel, true);
+      return;
+    }
+    setHidden(panel, false);
+    if (!qwMod) {
+      qwMod = await import("/sign/quick-wallet.js");
+    }
+    // e2e hook: pre-inject key without IndexedDB
+    if (window.__QUICK_WALLET_TEST_KEY__) {
+      qwUnlocked = await qwMod.unlockForTest({
+        privateKeyHex: window.__QUICK_WALLET_TEST_KEY__,
+        network: networkOfSession(),
+      });
+      useQuickWallet = true;
+      await showQwUnlocked();
+      refreshApproveEnabled();
+      return;
+    }
+    wireQwButtons();
+    var list = await qwMod.listWallets();
+    var net = networkOfSession();
+    var match = list.filter(function (w) { return w.network === net; });
+    if (qwUnlocked && qwUnlocked.network === net) {
+      await showQwUnlocked();
+      return;
+    }
+    if (match.length) {
+      $("qwStatus").textContent = "Quick-start wallet found on this device — unlock to approve.";
+      setHidden($("qwCreate"), true);
+      setHidden($("qwUnlock"), false);
+      setHidden($("qwPasskeyBtn"), match[0].unlock !== "passkey-prf");
+      window.__QW_ID__ = match[0].id;
+      if (match[0].unlock === "passkey-prf") setHidden($("qwPasskeyBtn"), false);
+    } else {
+      $("qwStatus").textContent = "No Quick-start wallet on this device yet.";
+      setHidden($("qwCreate"), false);
+      setHidden($("qwUnlock"), true);
+    }
+    if (session.kind === "l1-send") {
+      setHidden($("sendPanel"), false);
+      if (session.l1Build && session.l1Build.toAddress && $("sendTo")) {
+        $("sendTo").value = session.l1Build.toAddress;
+      }
+      if (session.l1Build && session.l1Build.amountSompi && $("sendAmt") && session.l1Build.amountSompi !== "0") {
+        $("sendAmt").value = qwMod.formatKas(session.l1Build.amountSompi);
+      }
+      updateSendSummary();
+    }
+  }
+
+  function wireQwButtons() {
+    if (window.__QW_WIRED__) return;
+    window.__QW_WIRED__ = true;
+    $("qwCreateBtn") && $("qwCreateBtn").addEventListener("click", function () {
+      createQw().catch(function (e) {
+        $("qwStatus").textContent = "Create failed: " + ((e && e.message) || e);
+      });
+    });
+    $("qwUnlockBtn") && $("qwUnlockBtn").addEventListener("click", function () {
+      unlockQw(false).catch(function (e) {
+        $("qwStatus").textContent = "Unlock failed: " + ((e && e.message) || e);
+      });
+    });
+    $("qwPasskeyBtn") && $("qwPasskeyBtn").addEventListener("click", function () {
+      unlockQw(true).catch(function (e) {
+        $("qwStatus").textContent = "Passkey unlock failed: " + ((e && e.message) || e);
+      });
+    });
+    $("qwCopy") && $("qwCopy").addEventListener("click", function () {
+      if (!qwUnlocked) return;
+      navigator.clipboard.writeText(qwUnlocked.address).then(function () {
+        $("qwStatus").textContent = "Address copied";
+      });
+    });
+    $("qwExport") && $("qwExport").addEventListener("click", function () {
+      exportQw().catch(function (e) {
+        $("qwStatus").textContent = "Export failed: " + ((e && e.message) || e);
+      });
+    });
+    $("qwBackupAck") && $("qwBackupAck").addEventListener("change", function () {
+      if ($("qwBackupDone")) $("qwBackupDone").disabled = !$("qwBackupAck").checked;
+    });
+    $("qwBackupDone") && $("qwBackupDone").addEventListener("click", function () {
+      qwMod.acknowledgeBackup(qwUnlocked.id).then(function () {
+        setHidden($("qwBackup"), true);
+        $("qwStatus").textContent = "Backup acknowledged";
+      });
+    });
+    $("qwImportBtn") && $("qwImportBtn").addEventListener("click", function () {
+      importQw().catch(function (e) {
+        $("qwStatus").textContent = "Import failed: " + ((e && e.message) || e);
+      });
+    });
+    $("sendMax") && $("sendMax").addEventListener("click", function () {
+      window.__SEND_MAX__ = true;
+      if ($("sendAmt")) $("sendAmt").value = "";
+      updateSendSummary();
+    });
+    $("sendAmt") && $("sendAmt").addEventListener("input", function () {
+      window.__SEND_MAX__ = false;
+      updateSendSummary();
+    });
+    $("sendTo") && $("sendTo").addEventListener("input", updateSendSummary);
+    $("sendGo") && $("sendGo").addEventListener("click", function () {
+      doSendFromPanel().catch(function (e) {
+        status("Send failed: " + ((e && e.message) || e), "err");
+      });
+    });
+  }
+
+  async function createQw() {
+    var pin = ($("qwPin") && $("qwPin").value) || "";
+    $("qwStatus").textContent = "Creating wallet on this device…";
+    var created;
+    try {
+      created = await qwMod.createWallet({
+        network: networkOfSession(),
+        pin: pin || undefined,
+        preferPasskey: true,
+      });
+    } catch (e) {
+      if (String(e && e.message) === "PIN_REQUIRED") {
+        throw new Error("Enter a PIN (4+ characters) — passkey PRF was unavailable on this browser");
+      }
+      throw e;
+    }
+    qwUnlocked = { id: created.id, network: created.network, address: created.address, xonlyHex: created.xonlyHex };
+    useQuickWallet = true;
+    if (created.mnemonic) {
+      setHidden($("qwBackup"), false);
+      $("qwBackupText").textContent = created.mnemonic + "\n\n" + created.notice;
+    }
+    await showQwUnlocked();
+    refreshApproveEnabled();
+    // If fund session fromAddress empty / mismatch, rebuild using quick wallet address
+    await maybeRebuildWithQwAddress();
+  }
+
+  async function unlockQw(passkey) {
+    var id = window.__QW_ID__;
+    if (!id) throw new Error("No wallet id");
+    var opts = passkey ? {} : { pin: ($("qwUnlockPin") && $("qwUnlockPin").value) || "" };
+    qwUnlocked = await qwMod.unlockWallet(id, opts);
+    useQuickWallet = true;
+    await showQwUnlocked();
+    refreshApproveEnabled();
+    await maybeRebuildWithQwAddress();
+  }
+
+  async function exportQw() {
+    var bak = await qwMod.exportBackup();
+    setHidden($("qwBackup"), false);
+    $("qwBackupText").textContent =
+      (bak.mnemonic ? "Mnemonic:\n" + bak.mnemonic + "\n\n" : "") +
+      "Private key hex:\n" +
+      bak.privateKeyHex +
+      "\n\n" +
+      bak.warning;
+  }
+
+  async function importQw() {
+    var raw = (($("qwImportText") && $("qwImportText").value) || "").trim();
+    var pin = ($("qwImportPin") && $("qwImportPin").value) || "";
+    if (!raw) throw new Error("Paste a backup phrase or key");
+    var opts = { network: networkOfSession(), pin: pin, preferPasskey: false, forcePin: true };
+    if (raw.split(/\s+/).length >= 12) opts.mnemonic = raw;
+    else opts.privateKeyHex = raw;
+    var created = await qwMod.importWallet(opts);
+    qwUnlocked = { id: created.id, network: created.network, address: created.address, xonlyHex: created.xonlyHex };
+    useQuickWallet = true;
+    await showQwUnlocked();
+    refreshApproveEnabled();
+  }
+
+  async function showQwUnlocked() {
+    setHidden($("qwCreate"), true);
+    setHidden($("qwUnlock"), true);
+    setHidden($("qwAddressBox"), false);
+    $("qwAddress").textContent = qwUnlocked.address;
+    $("qwStatus").textContent = "Quick-start unlocked — ready to approve.";
+    connectBtn.textContent = "Use Quick-start";
+    // QR via same-origin API
+    var qr = $("qwQr");
+    if (qr) {
+      qr.src = "/api/qr.svg?data=" + encodeURIComponent(qwUnlocked.address);
+      qr.hidden = false;
+    }
+    await refreshQwBalance();
+    startFundPollIfNeeded();
+    if (session.kind === "l1-send") setHidden($("sendPanel"), false);
+  }
+
+  async function refreshQwBalance() {
+    if (!qwUnlocked || !qwMod) return;
+    try {
+      var bal = await qwMod.fetchBalanceSompi(qwUnlocked.address, utxoApiOfSession());
+      $("qwBal").textContent = "Balance: " + qwMod.formatKas(bal) + " KAS";
+      var hint = $("qwFundHint");
+      if (bal === 0n) {
+        setHidden(hint, false);
+        if (networkOfSession() === "testnet-10") {
+          hint.innerHTML =
+            'Fund with free test KAS: copy address → open <a href="' +
+            qwMod.faucetUrl() +
+            '" target="_blank" rel="noopener">TN10 faucet</a> → paste → request. This page watches for arrival.';
+        } else {
+          hint.textContent =
+            "Mainnet: send a small amount of KAS to the address above (Quick-start cap 50 KAS). Page watches for arrival.";
+        }
+      } else {
+        setHidden(hint, true);
+      }
+      return bal;
+    } catch (e) {
+      $("qwBal").textContent = "Balance check failed";
+      return 0n;
+    }
+  }
+
+  function startFundPollIfNeeded() {
+    if (fundPollTimer) clearInterval(fundPollTimer);
+    fundPollTimer = setInterval(function () {
+      refreshQwBalance().then(function (bal) {
+        if (bal && bal > 0n && session && session.l1Build && !session.l1Build.fromAddress) {
+          maybeRebuildWithQwAddress();
+        }
+      });
+    }, 4000);
+  }
+
+  async function maybeRebuildWithQwAddress() {
+    if (!qwUnlocked || !session || !session.l1Build || !l1Mod) return;
+    if (session.kind !== "l1-fund" && session.kind !== "l1-send") return;
+    // Rebuild using quick-start as fromAddress when missing or different
+    var need =
+      !session.l1Build.fromAddress ||
+      String(session.l1Build.fromAddress).toLowerCase() !== String(qwUnlocked.address).toLowerCase();
+    if (!need) return;
+    session.l1Build.fromAddress = qwUnlocked.address;
+    status("Rebuilding with Quick-start address…");
+    try {
+      var b =
+        session.kind === "l1-send"
+          ? await l1Mod.buildPaymentTx(session.l1Build)
+          : await l1Mod.buildFundTx(session.l1Build);
+      built = b;
+      var derived = l1Mod.summarizeBuiltSafeJson(b.safeJson, {
+        kind: session.kind,
+        networkLabel: session.networkLabel,
+        isMainnet: session.isMainnet,
+        contractName: session.meta && session.meta.contractName,
+        templateId: session.meta && session.meta.templateId,
+        p2shAddress: b.p2shAddress,
+        destinationAddress:
+          session.l1Build.toAddress ||
+          session.l1Build.destinationAddress ||
+          (session.kind === "l1-fund" ? b.p2shAddress : null),
+      });
+      renderSummary(derived);
+      refreshApproveEnabled();
+      status(derived.title || "Ready");
+    } catch (e) {
+      // Likely no UTXOs yet — keep waiting
+      status("Waiting for funds at Quick-start address…", "");
+    }
+  }
+
+  function updateSendSummary() {
+    var box = $("sendSummary");
+    if (!box || !qwMod) return;
+    try {
+      var to = ($("sendTo") && $("sendTo").value) || "";
+      var net = networkOfSession();
+      if (to) qwMod.assertAddressNetwork(to, net);
+      var amtTxt = window.__SEND_MAX__ ? "(max − fee)" : (($("sendAmt") && $("sendAmt").value) || "");
+      var amt = window.__SEND_MAX__ ? null : amtTxt ? qwMod.parseKasToSompi(amtTxt) : null;
+      box.textContent =
+        (to ? "To: " + to + " · " : "") +
+        (window.__SEND_MAX__ ? "Amount: MAX (balance minus fee)" : amt != null ? "Amount: " + qwMod.formatKas(amt) + " KAS" : "Enter amount") +
+        " · Network: " +
+        net;
+      box.style.color = "";
+    } catch (e) {
+      box.textContent = (e && e.message) || String(e);
+      box.style.color = "var(--danger)";
+    }
+  }
+
+  async function doSendFromPanel() {
+    if (!qwUnlocked) throw new Error("Unlock Quick-start first");
+    var to = ($("sendTo") && $("sendTo").value || "").trim();
+    qwMod.assertAddressNetwork(to, networkOfSession());
+    status("Sending with Quick-start…", "signing");
+    var res = await qwMod.sendPayment({
+      network: networkOfSession(),
+      utxoApiBase: utxoApiOfSession(),
+      toAddress: to,
+      amountSompi: window.__SEND_MAX__ ? "0" : String(qwMod.parseKasToSompi($("sendAmt").value)),
+      max: !!window.__SEND_MAX__,
+    });
+    var exp =
+      networkOfSession() === "mainnet"
+        ? "https://explorer.kaspa.org/txs/" + res.txid
+        : "https://tn10.kaspa.stream/transactions/" + res.txid;
+    showSuccess(res.txid, exp);
+    await refreshQwBalance();
   }
 
   connectBtn.addEventListener("click", function () {

@@ -30,10 +30,19 @@ Legend: **Fund** = sign P2PK inputs of a SafeJSON (or sendKaspa to P2SH).
 Neither can connect to `https://kaspa-mcp…/sign/…` and sign a fund or covenant spend.  
 **Best real options for him today:** (1) desktop/Android **KasWare** or **Kastle** extension, (2) wait for **Kastle** iOS in-app browser or **Kasanova** `signPskt`, (3) future **KasSigner PSKB** QR from this page.
 
+## Quick-start wallet (this page)
+
+| | Fund | Spend | Send | iPhone Safari |
+|--|------|-------|------|---------------|
+| **Quick-start** (passkey/PIN, IndexedDB) | Yes | Yes | Yes | **Yes** |
+
+Keys never leave the device. 50 KAS cap. See [QUICKSTART_WALLET.md](./QUICKSTART_WALLET.md).
+
 ## What this page implements
 
 | Provider detected | Fund | Spend |
 |-------------------|------|-------|
+| Quick-start (on-page) | sign in-page → push | sign → unlock wrap → push |
 | `window.kasware` | `signPskt` → `pushTx` | `signPskt` → `finalizeCovenantSpend` → `pushTx` |
 | `window.kastle` | `signAndBroadcastTx` | `signTx` → finalize unlock → wasm `RpcClient.submitTransaction` |
 | `window.kaspire` | `signPskt` → `pushTx` (or request bridge) | same pattern as KasWare |

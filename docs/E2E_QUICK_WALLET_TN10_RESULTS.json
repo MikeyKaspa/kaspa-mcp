@@ -1,0 +1,30 @@
+{
+  "at": "2026-10-31T22:53:13.365Z",
+  "base": "http://127.0.0.1:18887",
+  "qwAddress": "kaspatest:qrfkpju2l2m75vdcrynv7dv8nmmycqft39d7570684u5cnmz6at0c6grdnsas",
+  "steps": [
+    {
+      "step": "deploy_fund",
+      "txid": "a4153a9fe363968819b634170bf5095adb026354db115acc2f4d16db8d57ab50",
+      "explorer": "https://tn10.kaspa.stream/transactions/a4153a9fe363968819b634170bf5095adb026354db115acc2f4d16db8d57ab50",
+      "p2sh": "kaspatest:pz6mt7uyzzunkf85pa3vktfeduc5sqmaz0pv5aj4p3x2ac3l5dkmknr79xrac"
+    },
+    {
+      "step": "tip",
+      "txid": "77a8dddfdbb93790954b4f4dc8bdd208d88f1e7fad519a257515c33522c2607e",
+      "explorer": "https://tn10.kaspa.stream/transactions/77a8dddfdbb93790954b4f4dc8bdd208d88f1e7fad519a257515c33522c2607e"
+    },
+    {
+      "step": "withdraw",
+      "txid": "a35f85bf4896cd3eef710149863ea6e68856cf7432c846d4bb400b4a2067f9c6",
+      "explorer": "https://tn10.kaspa.stream/transactions/a35f85bf4896cd3eef710149863ea6e68856cf7432c846d4bb400b4a2067f9c6"
+    },
+    {
+      "step": "send",
+      "txid": "62c8105fb0e08ad102fd0a11d438c5fbb3744e0c1a87a674b3eca7efb8dde288",
+      "explorer": "https://tn10.kaspa.stream/transactions/62c8105fb0e08ad102fd0a11d438c5fbb3744e0c1a87a674b3eca7efb8dde288",
+      "to": "kaspatest:qza6ey35a278ft60rhvjfna96dznge4qrlw9zgr7zedngjzqvd97u9t9lscq6"
+    }
+  ],
+  "ok": true
+}

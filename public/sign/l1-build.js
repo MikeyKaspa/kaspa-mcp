@@ -424,6 +424,7 @@ export function summarizeBuiltSafeJson(safeJson, opts) {
   const contract = opts.contractName || opts.templateId || "";
   const isFund = opts.kind === "l1-fund";
   const isSpend = opts.kind === "l1-spend";
+  const isSend = opts.kind === "l1-send";
 
   (tx.outputs || []).forEach((o, i) => {
     const v = BigInt(o.value || 0);
@@ -446,6 +447,10 @@ export function summarizeBuiltSafeJson(safeJson, opts) {
         label: i === 0 ? "Withdraw to you" : "Output " + i,
         value: formatKas(v) + " KAS",
       });
+    } else if (isSend && i === 0) {
+      plainLines.push({ label: "Send", value: formatKas(v) + " KAS" });
+    } else if (isSend) {
+      plainLines.push({ label: "Change", value: formatKas(v) + " KAS" });
     }
   });
 
@@ -461,6 +466,7 @@ export function summarizeBuiltSafeJson(safeJson, opts) {
   else if (isFund) title = "Fund " + (contract || "covenant");
   else if (isSpend && /tipjar/i.test(contract)) title = "Withdraw from Tip Jar";
   else if (isSpend) title = "Spend " + (contract || "covenant");
+  else if (isSend) title = "Send KAS";
   else title = opts.title || "Approve transaction";
 
   // Prefer explicit plain headline from first fund P2SH amount
@@ -500,12 +506,67 @@ export function summarizeBuiltSafeJson(safeJson, opts) {
     warnings,
     networkBadge: opts.isMainnet ? "Mainnet" : "Testnet",
     contractName: contract || null,
-    primaryAction: isSpend && /tipjar/i.test(contract) ? "Withdraw" : isSpend ? "Approve spend" : "Approve",
+    primaryAction: isSpend && /tipjar/i.test(contract) ? "Withdraw" : isSpend ? "Approve spend" : isSend ? "Send" : "Approve",
   };
 }
 
 
-/** Broadcast a fully signed SafeJSON via public wRPC (for wallets without pushTx, e.g. Kastle). */
+function safeJsonToRestSubmit(safeJson) {
+  const tx = JSON.parse(safeJson);
+  return {
+    version: tx.version ?? 0,
+    inputs: (tx.inputs || []).map((inp) => ({
+      previousOutpoint: {
+        transactionId: inp.transactionId || inp.previousOutpoint?.transactionId,
+        index: inp.index ?? inp.previousOutpoint?.index ?? 0,
+      },
+      signatureScript: String(inp.signatureScript || "").replace(/^0x/, ""),
+      sequence: Number(inp.sequence || 0),
+      sigOpCount: Number(inp.sigOpCount || 1),
+    })),
+    outputs: (tx.outputs || []).map((o) => {
+      let script = String(o.scriptPublicKey || "");
+      let version = 0;
+      if (script.startsWith("0000") && script.length > 4) {
+        script = script.slice(4);
+      }
+      return {
+        amount: Number(o.value),
+        scriptPublicKey: { version, scriptPublicKey: script },
+      };
+    }),
+    lockTime: Number(tx.lockTime || 0),
+    subnetworkId: tx.subnetworkId || "0000000000000000000000000000000000000000",
+  };
+}
+
+/** REST broadcast (works when public wRPC is unreachable). */
+export async function submitSignedTxRest(safeJson, kaspaNetwork) {
+  const net = kaspaNetwork || "testnet-10";
+  const api = net === "mainnet" ? "https://api.kaspa.org" : "https://api-tn10.kaspa.org";
+  const body = {
+    transaction: safeJsonToRestSubmit(safeJson),
+    allowOrphan: net !== "mainnet",
+  };
+  const res = await fetch(api + "/transactions", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json().catch(() => ({}));
+  const txid = json.transactionId || json.transaction_id;
+  if (!res.ok || json.error) {
+    const msg = json.error || json.detail || "submit HTTP " + res.status;
+    // Race: tx may still have landed
+    const m = String(msg).match(/[a-f0-9]{64}/i);
+    if (m) return m[0].toLowerCase();
+    throw new Error(msg);
+  }
+  if (!txid) throw new Error("REST submit missing transactionId");
+  return String(txid).toLowerCase();
+}
+
+/** Broadcast via wRPC with short timeout, then REST fallback. */
 export async function submitSignedTx(safeJson, kaspaNetwork) {
   await ensureKaspa();
   const net = kaspaNetwork || "testnet-10";
@@ -513,13 +574,64 @@ export async function submitSignedTx(safeJson, kaspaNetwork) {
     net === "mainnet"
       ? "wss://protonet.aspectron.org/kaspa/mainnet/wrpc/borsh"
       : "wss://electron-10.kaspa.blue/kaspa/testnet-10/wrpc/borsh";
-  const tx = Transaction.deserializeFromSafeJSON(safeJson);
-  const rpc = new RpcClient({ url, encoding: Encoding.Borsh, networkId: net });
-  await rpc.connect();
   try {
-    const res = await rpc.submitTransaction({ transaction: tx, allowOrphan: false });
-    return res.transactionId || String(res);
-  } finally {
-    try { await rpc.disconnect(); } catch (_) {}
+    const tx = Transaction.deserializeFromSafeJSON(safeJson);
+    const rpc = new RpcClient({ url, encoding: Encoding.Borsh, networkId: net });
+    const wrpc = (async () => {
+      await rpc.connect();
+      try {
+        const res = await rpc.submitTransaction({ transaction: tx, allowOrphan: net !== "mainnet" });
+        return res.transactionId || String(res);
+      } finally {
+        try { await rpc.disconnect(); } catch (_) {}
+      }
+    })();
+    const timed = new Promise((_, rej) => setTimeout(() => rej(new Error("wRPC timeout")), 8000));
+    return await Promise.race([wrpc, timed]);
+  } catch (e) {
+    return submitSignedTxRest(safeJson, net);
   }
+}
+
+/**
+ * Simple P2PK → address payment (Send KAS). No covenant.
+ */
+export async function buildPaymentTx(build) {
+  await ensureKaspa();
+  const net = build.kaspaNetwork;
+  const entries = await fetchUtxos(build.utxoApiBase, build.fromAddress);
+  if (!entries.length) throw new Error("No UTXOs for " + build.fromAddress);
+  const total = entries.reduce((a, e) => a + e.amount, 0n);
+  const priorityFee = BigInt(build.priorityFeeSompi || 10000);
+  let amount;
+  if (build.sendMax) {
+    // createTransactions subtracts priorityFee itself — pass almost-all as amount;
+    // it will reduce for fee/change. Use total - 1 so a change output is not forced incorrectly.
+    // Better: single output of (total - fee) with priorityFee 0 after manual fee reserve.
+    if (total <= priorityFee + 1000n) throw new Error("Insufficient funds for fee");
+    amount = total - priorityFee;
+  } else {
+    amount = BigInt(build.amountSompi || 0);
+  }
+  if (amount <= 0n) throw new Error("amount must be > 0");
+  const { transactions, summary } = await createTransactions({
+    entries,
+    outputs: [{ address: build.toAddress || build.destinationAddress, amount }],
+    changeAddress: build.fromAddress,
+    // When sendMax we already reserved fee in amount; keep priorityFee but expect no change
+    priorityFee: build.sendMax ? 0n : priorityFee,
+    networkId: net,
+  });
+  const pending = transactions[0];
+  if (!pending) throw new Error("createTransactions returned no tx");
+  const tx = pending.transaction;
+  return {
+    safeJson: tx.serializeToSafeJSON(),
+    signInputs: Array.from({ length: tx.inputs.length }, (_, i) => ({ index: i, sighashType: 1 })),
+    feeSompi: String(summary?.fees ?? ""),
+    amountSompi: String(amount),
+    toAddress: build.toAddress || build.destinationAddress,
+    fromAddress: build.fromAddress,
+    mode: "unsigned_safe_json",
+  };
 }

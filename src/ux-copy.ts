@@ -9,13 +9,17 @@ export const TN10_FAUCET_SOURCE = "https://wiki.kaspa.org/en/testnets";
 
 export const WALLET_TAP_APPROVE = {
   worksNow: [
+    "Quick-start wallet — built into the approve page (Face ID / fingerprint / PIN). Works on iPhone Safari. Keys never leave the device.",
     "KasWare — desktop browser extension + Android",
     "Kastle — when injected in the browser",
     "Kaspire — WalletConnect path on the approve page",
   ],
-  notYet: ["Kaspium (mobile app)", "KaChat"],
+  notYet: ["Kaspium / KaChat as injected dApp wallets (use Quick-start instead)"],
   plain:
-    "To tap-approve on this public connector you need KasWare (desktop or Android), Kastle, or Kaspire. Kaspium and KaChat cannot approve yet.",
+    "No wallet yet? Open the approve link and tap Create Quick-start wallet (Face ID or PIN). Or use KasWare / Kastle / Kaspire if you already have one.",
+  quickStartCapKas: 50,
+  dataLossNotice:
+    "Quick-start wallets live only in this browser. Clearing site data loses them unless you saved a backup.",
 };
 
 export const NO_POPUP_PATH_PLAIN =
@@ -45,20 +49,20 @@ You are on the keyless shared demo — you cannot deploy without their approval 
 
 Do this, in order:
 1. Ask **Testnet or mainnet?** then call choose_network. Prefer testnet.
-2. Offer TWO plain paths (do not jump straight into “prepare for KasWare” only):
-   A) **Tap to approve (this public connector):** you prepare a link; they open it and approve in a compatible wallet.
-      Wallets that work today: KasWare (desktop/Android), Kastle, Kaspire.
-      Not yet: Kaspium, KaChat.
-   B) **No approvals (their own copy):** call self_host and walk them through a free Cloudflare copy + spending wallet. Then l1_tipjar_chat_deploy works with zero popups.
-3. If they pick A and have no testnet KAS: call faucet_info, show the faucet URL, and give the one-line paste step. Never claim you can drip funds.
-4. Only ask for their kaspatest: address when path A needs a funding source address — explain it is their public receive address, not a key.
-5. Never say “compile with your key baked in” or similar jargon. Say: “We’ll make a tip jar owned by your wallet” or “owned by the bot’s spending wallet on your copy.”
-6. On the shared demo, l1_tipjar_chat_deploy is refused — that is expected; steer to A or B above.
+2. Offer plain paths:
+   A) **Quick-start (best for brand-new users / iPhone):** prepare tap links; they open the page, create a Quick-start wallet (Face ID or PIN), fund via faucet (testnet) or QR (mainnet, 50 KAS cap), then Approve. Keys never leave their device.
+   B) **Extension wallet:** KasWare / Kastle / Kaspire if they already have one.
+   C) **No approvals (their own copy):** call self_host → free Cloudflare copy + spending wallet → l1_tipjar_chat_deploy with zero popups.
+3. If they pick A/B and have no testnet KAS: call faucet_info + show faucet URL. Never claim you can drip funds. The Quick-start page shows address + faucet link and polls balance.
+4. For Quick-start: after they create the wallet, use the address shown on the page as fromAddress / ownerAddress.
+5. Never say “compile with your key baked in”. Say: “We’ll make a tip jar owned by your wallet.”
+6. On the shared demo, l1_tipjar_chat_deploy is refused — that is expected; steer to A/B/C above.
+7. “Send 3 KAS to <address>”: call l1_prepare_send → give tapToApprove.url (Quick-start or extension).
 `.trim();
 
 export const TAP_APPROVE_NOTE =
-  "Open the approve link. Compatible wallets: KasWare (desktop/Android), Kastle, Kaspire. Not yet: Kaspium, KaChat. " +
-  "Prefer no popups? Use self_host for your own copy.";
+  "Open the approve link. New to Kaspa? Create a Quick-start wallet on the page (Face ID / PIN; works on iPhone). " +
+  "Or use KasWare / Kastle / Kaspire. Prefer no popups? Use self_host for your own copy.";
 
 /** Steer agents away from “send manually in KasWare”. */
 export const NEVER_MANUAL_SEND =

@@ -1,5 +1,5 @@
 /** Stored prepare payload for one-tap /sign/<id> (never contains private keys). */
-export type SignKind = "l1-fund" | "l1-spend" | "evm-deploy" | "evm-call";
+export type SignKind = "l1-fund" | "l1-spend" | "l1-send" | "evm-deploy" | "evm-call";
 
 export interface L1BrowserBuild {
   /** Page loads /kaspa-wasm and builds SafeJSON in-browser */
@@ -7,10 +7,14 @@ export interface L1BrowserBuild {
   kaspaNetwork: "testnet-10" | "mainnet";
   utxoApiBase: string;
   bytecodeHex: string;
-  /** fund */
+  /** fund / send */
   fromAddress?: string;
+  /** send: destination P2PK address */
+  toAddress?: string;
   amountSompi?: string;
   priorityFeeSompi?: string;
+  /** when true, page uses max balance − fee */
+  sendMax?: boolean;
   /** spend */
   entryName?: string;
   dispatchTag?: string;

@@ -65,6 +65,7 @@ const httpServer = createServer(async (req, res) => {
       url.pathname === "/sign/app.js" ||
       url.pathname === "/sign/app.css" ||
       url.pathname === "/sign/l1-build.js" ||
+      url.pathname === "/sign/quick-wallet.js" ||
       url.pathname === "/campaign/app.js"
     ) {
       const { readFileSync, existsSync } = await import("node:fs");
