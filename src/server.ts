@@ -20,6 +20,18 @@ import { bytesToHex } from "./l1/script.js";
 import { backendFor } from "./backends/registry.js";
 import { compileSolidityAsync } from "./backends/compile.js";
 import { SAFETY_BANNER, SafetyError, normalizeTestnetPrivateKey, redactSecrets } from "./safety.js";
+import {
+  BUILD_TIPJAR_PUBLIC_GUIDE,
+  NO_POPUP_PATH_PLAIN,
+  TAP_APPROVE_NOTE,
+  WALLET_TAP_APPROVE,
+  faucetPasteSteps,
+  TN10_FAUCET_URL,
+  readyNotOnChain,
+  NEVER_MANUAL_SEND,
+  WITHDRAW_PUBLIC_GUIDE,
+  zeroBalanceFundOffer,
+} from "./ux-copy.js";
 import type { CompileResult, TextJson } from "./types.js";
 import {
   MAX_ABI_ITEMS,
@@ -38,6 +50,7 @@ import { L1_UNAUDITED_WARNING, kaspaWasmAvailable } from "./l1/kaspa-sdk.js";
 import { attachTapToApprove, utxoApiBaseFor, kaspaNetworkFor, contractLabelFor } from "./sign/attach.js";
 import { compileSilverscript, isSilvercAvailable, silvercCompileHint } from "./l1/compile.js";
 import { coerceBytecode } from "./l1/artifact.js";
+import { resolveTemplateBytecodeForFund } from "./l1/resolve-template-bytecode.js";
 import {
   createSpendingWallet,
   spendingWalletStatus,
@@ -110,7 +123,11 @@ export function createKaspaMcpServer(): McpServer {
       instructions:
         `${SAFETY_BANNER}\n\n${L1_UNAUDITED_WARNING}\n\n${MCP_NETWORK_INSTRUCTIONS}\n\n` +
         `For everyday users who want chat-deploy without popups: guide them with self_host ` +
-        `(Cloudflare or local), then spending_wallet_create on THEIR copy. Shared demo is keyless.`,
+        `(Cloudflare or local), then spending_wallet_create on THEIR copy. Shared demo is keyless.\n\n` +
+        `${BUILD_TIPJAR_PUBLIC_GUIDE}\n\n` +
+        `${WITHDRAW_PUBLIC_GUIDE}\n\n` +
+        `${NEVER_MANUAL_SEND}\n\n` +
+        `Wallets for tap-to-approve: ${WALLET_TAP_APPROVE.plain} ${NO_POPUP_PATH_PLAIN}`,
     },
   );
 
@@ -177,7 +194,7 @@ export function createKaspaMcpServer(): McpServer {
         "",
         "### Native L1 SilverScript (primary)",
         `- ${theme} as a P2SH covenant on kaspa-l1-testnet-10`,
-        "- Tools: silverscript_templates → l1_derive_p2sh → l1_prepare_fund → KasWare signPskt → l1_prepare_spend",
+        "- Tools: silverscript_templates → faucet_info → l1_prepare_fund → open tapToApprove (KasWare/Kastle/Kaspire) — or self_host for no popups",
         "- Compile: self-host silverc, or paste artifact (Workers cannot compile)",
         "- Pre-audit — run kaspa-redteam before mainnet value. Mainnet writes gated.",
         "- KCC-20: upcoming (not shipped in this connector yet)",
@@ -507,7 +524,24 @@ export function createKaspaMcpServer(): McpServer {
         const resolved = resolveNetwork({ explicit: nid, kind: "any", allowSafeFallback: true });
         if (!resolved.ok) return ok({ safety: SAFETY_BANNER, ...resolved });
         const network = resolved.network;
-        return ok(await backendFor(network).getBalance(network, address));
+        const bal = await backendFor(network).getBalance(network, address);
+        const sompi = BigInt(
+          (bal as { balanceSompi?: string; balanceWei?: string }).balanceSompi ??
+            (bal as { balanceWei?: string }).balanceWei ??
+            (bal as { balance?: string | number }).balance ??
+            0,
+        );
+        // kaspatest:p… / kaspa:p… are script-hash (P2SH)
+        const p2shLike = /:p[a-z0-9]{50,}$/i.test(address);
+        if (sompi === 0n && p2shLike) {
+          return ok({
+            safety: SAFETY_BANNER,
+            ...bal,
+            balanceSompi: "0",
+            ...zeroBalanceFundOffer(address),
+          });
+        }
+        return ok({ safety: SAFETY_BANNER, ...bal, funded: sompi > 0n });
       } catch (e) {
         return err(e);
       }
@@ -557,11 +591,19 @@ export function createKaspaMcpServer(): McpServer {
             message: "Mainnet has no faucet. Bridging/buying KAS costs real money — out of scope for this $0 connector.",
           });
         }
+        const isL1Tn10 = n.id === "kaspa-l1-testnet-10" || n.id === "kaspa-testnet-10";
         return ok({
           network: n.id,
-          faucetUrl: n.faucetUrl ?? null,
+          faucetUrl: n.faucetUrl ?? (isL1Tn10 ? TN10_FAUCET_URL : null),
           notes: n.faucetNotes ?? "See network docs.",
           cost: "$0 testnet tokens only",
+          ...(isL1Tn10 ? faucetPasteSteps() : {}),
+          tellUser:
+            isL1Tn10
+              ? `No testnet KAS yet? Open ${TN10_FAUCET_URL} → paste your kaspatest: address → request free test KAS. (Official Kaspa wiki faucet; this bot never auto-drips.)`
+              : undefined,
+          walletsForApprove: WALLET_TAP_APPROVE,
+          noPopupPath: NO_POPUP_PATH_PLAIN,
           igraApi:
             n.id === "igra-galleon-testnet"
               ? {
@@ -662,6 +704,10 @@ export function createKaspaMcpServer(): McpServer {
             kcc20: "Upcoming — not shipped in this connector yet.",
             compileHint: silvercCompileHint(),
             walletHint: KASWARE_HINT,
+            wallets: WALLET_TAP_APPROVE,
+            noPopupPath: NO_POPUP_PATH_PLAIN,
+            plainEnglish:
+              "Ready-made contracts. On the public demo you approve once in a compatible wallet; on your own copy the bot can deploy with no popups.",
           });
         }
         return ok({
@@ -678,6 +724,10 @@ export function createKaspaMcpServer(): McpServer {
           warning: L1_UNAUDITED_WARNING,
           compileHint: silvercCompileHint(),
           walletHint: KASWARE_HINT,
+          wallets: WALLET_TAP_APPROVE,
+          noPopupPath: NO_POPUP_PATH_PLAIN,
+          buildTipJarHint:
+            "User said build a tip jar? Ask Testnet/mainnet, then offer tap-to-approve OR self_host (no popups). Call faucet_info if they need free tKAS.",
         });
       } catch (e) {
         return err(e);
@@ -753,32 +803,44 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "l1_derive_p2sh",
     {
-      description: "Derive Kaspa P2SH address from SilverScript redeem bytecode (testnet-10 or mainnet id). Requires kaspa-wasm (Node self-host); not on Cloudflare Workers. UNAUDITED / use at own risk.",
+      description:
+        "Derive Kaspa P2SH from redeem bytecode (pure-JS on Workers). For tipjar you MUST pass ownerAddress (or ownerPkhHex) so the address is owner-bound — never the demo template. UNAUDITED.",
       inputSchema: {
         bytecodeHex: z.string().optional(),
         artifact: z.unknown().optional(),
         templateId: z.string().optional().describe("tipjar | timeout_vault | escrow"),
         contractName: z.string().optional(),
+        ownerAddress: z.string().optional().describe("Required for tipjar — your kaspatest:q… receive address"),
+        ownerPkhHex: z.string().optional(),
         network: z.string().default("kaspa-l1-testnet-10"),
       },
     },
-    async ({ bytecodeHex, artifact, templateId, contractName, network: nid }) => {
+    async ({ bytecodeHex, artifact, templateId, contractName, ownerAddress, ownerPkhHex, network: nid }) => {
       try {
         const network = getNetwork(nid);
-        let bc: Uint8Array;
-        if (templateId) {
-          bc = getTemplate(templateId).loadedExample.bytecode;
-        } else if (artifact) {
-          bc = loadSilArtifact(artifact, contractName).bytecode;
-        } else if (bytecodeHex) {
-          bc = coerceBytecode(bytecodeHex);
-        } else {
-          throw new Error("Provide templateId, artifact, or bytecodeHex");
-        }
-        const net =
-          network.id.includes("mainnet") && !network.isTestnet ? "mainnet" : "testnet-10";
-        const derived = await deriveP2shAddress(bc, net);
-        return ok({ safety: SAFETY_BANNER, warning: L1_UNAUDITED_WARNING, networkId: network.id, ...derived, walletHint: KASWARE_HINT });
+        const resolvedBc = resolveTemplateBytecodeForFund({
+          templateId,
+          artifact,
+          contractName,
+          bytecodeHex,
+          ownerAddress,
+          ownerPkhHex,
+          networkId: network.id,
+        });
+        return ok({
+          safety: SAFETY_BANNER,
+          warning: L1_UNAUDITED_WARNING,
+          networkId: network.id,
+          address: resolvedBc.p2shAddress,
+          p2shAddress: resolvedBc.p2shAddress,
+          bytecodeHex: resolvedBc.bytecodeHex,
+          ownerAddress,
+          ownerPkhHex: resolvedBc.ownerPkhHex,
+          rebound: resolvedBc.rebound,
+          ...readyNotOnChain({ p2shAddress: resolvedBc.p2shAddress, templateId }),
+          walletHint: KASWARE_HINT,
+          neverManualSend: NEVER_MANUAL_SEND,
+        });
       } catch (e) {
         return err(e);
       }
@@ -789,7 +851,9 @@ export function createKaspaMcpServer(): McpServer {
     "l1_prepare_fund",
     {
       description:
-        "Build fund tx for a P2SH covenant. Default: unsigned SafeJSON + tapToApprove. With autoSignBroadcast=true on self-host with a spending wallet, signs+broadcasts (testnet default; mainnet needs KASPA_SPENDING_MAINNET=1). Shared demo never auto-signs. UNAUDITED.",
+        "Prepare a ONE-TAP fund link for a P2SH covenant (public demo OK). Always returns tapToApprove.url — never tell users to send manually from KasWare. " +
+        "For tipjar: ALWAYS rebinds bytecode to ownerAddress (defaults to fromAddress) so the funded P2SH matches the owner-bound jar (never the demo template). " +
+        "Pass expectedP2shAddress if you already showed the user an address — mismatch refuses. autoSignBroadcast=self-host only. UNAUDITED.",
       inputSchema: {
         network: z
           .string()
@@ -802,6 +866,15 @@ export function createKaspaMcpServer(): McpServer {
         artifact: z.unknown().optional(),
         contractName: z.string().optional(),
         templateId: z.string().optional(),
+        ownerAddress: z
+          .string()
+          .optional()
+          .describe("TipJar owner P2PK address (kaspatest:q…). Defaults to fromAddress. Required for tipjar binding."),
+        ownerPkhHex: z.string().optional().describe("Optional explicit TipJar ownerPkh (32-byte hex)"),
+        expectedP2shAddress: z
+          .string()
+          .optional()
+          .describe("If you already showed the user a P2SH, pass it here — fund refuses on mismatch"),
         autoSignBroadcast: z.boolean().optional().describe("Self-host spending wallet: sign+broadcast. Ignored/refused on shared demo."),
       },
     },
@@ -812,18 +885,21 @@ export function createKaspaMcpServer(): McpServer {
         if (ask) return ask;
         if (!resolved.ok) return err("network resolve failed");
         const network = resolved.network;
-        let loadedBc: Uint8Array;
-        let loaded;
-        if (a.templateId) {
-          loaded = getTemplate(a.templateId).loadedExample;
-          loadedBc = loaded.bytecode;
-        } else if (a.artifact) {
-          loaded = loadSilArtifact(a.artifact, a.contractName);
-          loadedBc = loaded.bytecode;
-        } else if (a.bytecodeHex) {
-          loadedBc = coerceBytecode(a.bytecodeHex);
-        } else throw new Error("Provide templateId, artifact, or bytecodeHex");
-        const bytecodeHex = [...loadedBc].map((b) => b.toString(16).padStart(2, "0")).join("");
+        const ownerAddress = a.ownerAddress?.trim() || a.fromAddress?.trim();
+        const resolvedBc = resolveTemplateBytecodeForFund({
+          templateId: a.templateId,
+          artifact: a.artifact,
+          contractName: a.contractName,
+          bytecodeHex: a.bytecodeHex,
+          ownerAddress,
+          ownerPkhHex: a.ownerPkhHex,
+          expectedP2shAddress: a.expectedP2shAddress,
+          networkId: network.id,
+        });
+        const loaded = resolvedBc.loaded;
+        const loadedBc = resolvedBc.bytecode;
+        const bytecodeHex = resolvedBc.bytecodeHex;
+        const p2shAddress = resolvedBc.p2shAddress;
         const l1Build = {
           buildInBrowser: true as const,
           kaspaNetwork: kaspaNetworkFor(network.id, network.isTestnet),
@@ -832,6 +908,7 @@ export function createKaspaMcpServer(): McpServer {
           fromAddress: a.fromAddress,
           amountSompi: String(a.amountSompi),
           priorityFeeSompi: a.priorityFeeSompi != null ? String(a.priorityFeeSompi) : undefined,
+          expectedP2shAddress: p2shAddress,
         };
         if (a.autoSignBroadcast) {
           if (isSharedPublicDemo()) {
@@ -867,6 +944,11 @@ export function createKaspaMcpServer(): McpServer {
             meta: {
               templateId: a.templateId,
               contractName: contractLabelFor(a.templateId, a.contractName),
+              p2shAddress,
+              expectedP2shAddress: p2shAddress,
+              ownerAddress,
+              ownerPkhHex: resolvedBc.ownerPkhHex,
+              rebound: resolvedBc.rebound,
             },
           });
           if (!tapToApprove) {
@@ -880,8 +962,15 @@ export function createKaspaMcpServer(): McpServer {
             kaspaNetwork: l1Build.kaspaNetwork,
             amountSompi: String(a.amountSompi),
             fromAddress: a.fromAddress,
+            ownerAddress,
+            p2shAddress,
+            rebound: resolvedBc.rebound,
             tapToApprove,
-            note: "Open tapToApprove.url — the page builds the fund tx with kaspa-wasm (static asset) and signs via KasWare signPskt→pushTx.",
+            ...readyNotOnChain({ p2shAddress, tapToApproveUrl: tapToApprove.url, templateId: a.templateId }),
+            note: TAP_APPROVE_NOTE,
+            wallets: WALLET_TAP_APPROVE,
+            noPopupPath: NO_POPUP_PATH_PLAIN,
+            neverManualSend: NEVER_MANUAL_SEND,
           });
         }
         if (!a.fromAddress) throw new Error("fromAddress required unless autoSignBroadcast");
@@ -892,17 +981,36 @@ export function createKaspaMcpServer(): McpServer {
           amountSompi: BigInt(a.amountSompi),
           priorityFeeSompi: a.priorityFeeSompi != null ? BigInt(a.priorityFeeSompi) : undefined,
         });
+        if (prepared.p2shAddress !== p2shAddress) {
+          throw new SafetyError(
+            `Prepared P2SH ${prepared.p2shAddress} !== rebound ${p2shAddress} — refusing`,
+          );
+        }
         const tapToApprove = await attachTapToApprove("l1-fund", network.id, {
           safeJson: prepared.safeJson,
           signInputs: prepared.kasware.signInputs,
           l1Build,
           meta: {
-            p2shAddress: prepared.p2shAddress,
+            p2shAddress,
+            expectedP2shAddress: p2shAddress,
             templateId: a.templateId,
             contractName: contractLabelFor(a.templateId, a.contractName),
+            ownerAddress,
+            ownerPkhHex: resolvedBc.ownerPkhHex,
+            rebound: resolvedBc.rebound,
           },
         });
-        return ok({ safety: SAFETY_BANNER, ...prepared, tapToApprove });
+        return ok({
+          safety: SAFETY_BANNER,
+          warning: L1_UNAUDITED_WARNING,
+          ...prepared,
+          p2shAddress,
+          ownerAddress,
+          rebound: resolvedBc.rebound,
+          tapToApprove,
+          ...readyNotOnChain({ p2shAddress, tapToApproveUrl: tapToApprove?.url, templateId: a.templateId }),
+          neverManualSend: NEVER_MANUAL_SEND,
+        });
       } catch (e) {
         return err(e);
       }
@@ -913,7 +1021,8 @@ export function createKaspaMcpServer(): McpServer {
     "l1_prepare_spend",
     {
       description:
-        "Prepare/spend a P2SH covenant UTXO. Default: prepare + tapToApprove. autoSignBroadcast uses self-host spending wallet (fills $sig/$pk). Chat privateKey still TESTNET-only ephemeral; preferred path is spending wallet. Shared demo never auto-signs. UNAUDITED. Ask Testnet or mainnet? via choose_network if network omitted.",
+        "Prepare a ONE-TAP withdraw/spend link for a P2SH covenant. Works on the PUBLIC demo via tapToApprove (/sign page wraps the unlock for KasWare/Kastle/Kaspire). " +
+        "If the jar has 0 balance, call l1_prepare_fund first — never tell users to send manually. autoSignBroadcast = self-host spending wallet only. UNAUDITED.",
       inputSchema: {
         network: z.string().optional().describe("L1 network; choose_network first if omitted"),
         entry: z.string(),
@@ -1014,7 +1123,9 @@ export function createKaspaMcpServer(): McpServer {
             networkId: network.id,
             entry: a.entry,
             tapToApprove,
-            note: "Open tapToApprove.url — page builds spend with kaspa-wasm. SilverScript unlock needs a signer harness or Node prepareSpend; KasWare signPskt alone cannot fill covenant unlocks (use pushTx on pre-filled).",
+            note: TAP_APPROVE_NOTE + " For covenant unlocks the page fills the script then broadcasts; KasWare-only signPskt cannot invent unlock args.",
+            wallets: WALLET_TAP_APPROVE,
+            noPopupPath: NO_POPUP_PATH_PLAIN,
           });
         }
         const prepared = await prepareSpend({
@@ -1225,7 +1336,33 @@ export function createKaspaMcpServer(): McpServer {
     async (a) => {
       try {
         if (isSharedPublicDemo()) {
-          throw new SafetyError("l1_tipjar_chat_deploy refused on shared demo — self-host");
+          return ok({
+            safety: SAFETY_BANNER,
+            warning: L1_UNAUDITED_WARNING,
+            refused: true,
+            reason: "shared_demo_keyless",
+            plainEnglish:
+              "This public connector never holds keys, so it cannot deploy a tip jar by itself. Pick one path:",
+            paths: {
+              tapToApprove: {
+                title: "Approve once in your wallet (this connector)",
+                walletsThatWork: WALLET_TAP_APPROVE.worksNow,
+                walletsNotYet: WALLET_TAP_APPROVE.notYet,
+                nextTools: [
+                  "choose_network({ choice: \"testnet\" })",
+                  "faucet_info if they need free tKAS",
+                  "l1_prepare_fund({ templateId: \"tipjar\", fromAddress, amountSompi }) → open tapToApprove.url",
+                ],
+              },
+              noPopups: {
+                title: "No approvals — their own free copy",
+                next: "Call self_host({ step: \"start\" }) and walk them through Cloudflare + spending wallet, then retry l1_tipjar_chat_deploy on THEIR /mcp URL.",
+              },
+            },
+            faucet: faucetPasteSteps(),
+            askUser:
+              "Do you want a one-tap approve link (KasWare / Kastle / Kaspire), or should I help you set up your own copy so I can deploy with no popups?",
+          });
         }
         const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
         const ask = needNetworkChoicePayload(resolved);
@@ -1539,7 +1676,30 @@ export function createKaspaMcpServer(): McpServer {
     },
     async (a) => {
       try {
-        if (isSharedPublicDemo()) throw new SafetyError("l1_vault_chat_deploy refused on shared demo — self-host");
+        if (isSharedPublicDemo()) {
+          return ok({
+            safety: SAFETY_BANNER,
+            warning: L1_UNAUDITED_WARNING,
+            refused: true,
+            reason: "shared_demo_keyless",
+            plainEnglish:
+              "This public connector never holds keys, so chat-deploy without popups needs YOUR own copy.",
+            paths: {
+              tapToApprove: {
+                title: "Approve once in your wallet (this connector)",
+                walletsThatWork: WALLET_TAP_APPROVE.worksNow,
+                walletsNotYet: WALLET_TAP_APPROVE.notYet,
+              },
+              noPopups: {
+                title: "No approvals — their own free copy",
+                next: "Call self_host({ step: \"start\" }) then retry this tool on THEIR /mcp URL.",
+              },
+            },
+            faucet: faucetPasteSteps(),
+            askUser:
+              "One-tap approve (KasWare / Kastle / Kaspire), or set up your own copy for no popups?",
+          });
+        }
         const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
         const ask = needNetworkChoicePayload(resolved);
         if (ask) return ask;
@@ -1618,7 +1778,30 @@ export function createKaspaMcpServer(): McpServer {
     },
     async (a) => {
       try {
-        if (isSharedPublicDemo()) throw new SafetyError("l1_escrow_chat_deploy refused on shared demo — self-host");
+        if (isSharedPublicDemo()) {
+          return ok({
+            safety: SAFETY_BANNER,
+            warning: L1_UNAUDITED_WARNING,
+            refused: true,
+            reason: "shared_demo_keyless",
+            plainEnglish:
+              "This public connector never holds keys, so chat-deploy without popups needs YOUR own copy.",
+            paths: {
+              tapToApprove: {
+                title: "Approve once in your wallet (this connector)",
+                walletsThatWork: WALLET_TAP_APPROVE.worksNow,
+                walletsNotYet: WALLET_TAP_APPROVE.notYet,
+              },
+              noPopups: {
+                title: "No approvals — their own free copy",
+                next: "Call self_host({ step: \"start\" }) then retry this tool on THEIR /mcp URL.",
+              },
+            },
+            faucet: faucetPasteSteps(),
+            askUser:
+              "One-tap approve (KasWare / Kastle / Kaspire), or set up your own copy for no popups?",
+          });
+        }
         const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
         const ask = needNetworkChoicePayload(resolved);
         if (ask) return ask;

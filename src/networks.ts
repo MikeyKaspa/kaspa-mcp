@@ -108,12 +108,13 @@ export const NETWORKS: Record<string, NetworkInfo> = {
     rpcUrl: "https://api-tn10.kaspa.org",
     explorerUrl: "https://tn10.kaspa.stream",
     nativeCurrency: { name: "Kaspa Testnet", symbol: "TKAS", decimals: 8 },
-    faucetUrl: "https://faucet-tn10.kaspanet.io",
-    faucetNotes: "Official Kaspa testnet faucet for tKAS (L1). Free.",
+    faucetUrl: "https://faucet-tn10.kaspanet.io/",
+    faucetNotes:
+      "Official TN-10 faucet (wiki.kaspa.org/en/testnets): https://faucet-tn10.kaspanet.io/ — paste your kaspatest: address yourself; this connector never auto-drips.",
     docsUrl: "https://docs.kaspa.org/toccata",
     maturity: "pre-audit",
     notes:
-      "Preferred network for L1 SilverScript templates (tipjar / timeout_vault / escrow). Compile with self-host silverc or paste artifact. KCC-20 upcoming (not shipped yet).",
+      "Preferred network for tip jars, vaults, and escrows. On your own copy the bot can deploy templates from chat; on the shared demo you approve once in KasWare/Kastle/Kaspire. KCC-20 upcoming (not shipped yet).",
   },
   "kaspa-covenants-mainnet": {
     id: "kaspa-covenants-mainnet",

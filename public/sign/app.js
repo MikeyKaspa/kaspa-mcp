@@ -144,6 +144,24 @@
                 : mod.buildSpendTx(session.l1Build);
             return p.then(function (b) {
               built = b;
+              var expected =
+                (session.l1Build && session.l1Build.expectedP2shAddress) ||
+                (session.meta && (session.meta.expectedP2shAddress || session.meta.p2shAddress)) ||
+                "";
+              if (
+                session.kind === "l1-fund" &&
+                expected &&
+                b.p2shAddress &&
+                String(expected).toLowerCase() !== String(b.p2shAddress).toLowerCase()
+              ) {
+                throw new Error(
+                  "SECURITY: fund destination " +
+                    b.p2shAddress +
+                    " does not match the contract you were shown (" +
+                    expected +
+                    "). Do not approve.",
+                );
+              }
               var json = b.signedSafeJson || b.safeJson;
               var derived = mod.summarizeBuiltSafeJson(json, {
                 kind: session.kind,

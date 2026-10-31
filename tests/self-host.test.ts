@@ -16,12 +16,16 @@ describe("self_host guide", () => {
     expect(r.sharedDemo).toBe(true);
     expect(JSON.stringify(r)).not.toMatch(/0x[0-9a-fA-F]{64}/);
     expect(r.overviewSteps).toBeTruthy();
+    expect(String(r.trapToAvoid || "")).toMatch(/keyless|no-popup|selfhost/i);
+    expect(r.beforeYouStart).toBeTruthy();
   });
 
-  it("deploy cloudflare gives copy-paste wrangler.selfhost commands", async () => {
+  it("deploy cloudflare gives copy-paste wrangler.selfhost / selfhost:setup commands", async () => {
     const r = await runSelfHostGuide({ step: "deploy", platform: "cloudflare" });
     expect(String(r.commands)).toContain("wrangler.selfhost.toml");
-    expect(String(r.oneClick)).toContain("deploy.workers.cloudflare.com");
+    expect(String(r.commands)).toContain("selfhost:setup");
+    expect(String(r.oneClickKeylessOnly || r.oneClick || "")).toContain("deploy.workers.cloudflare.com");
+    expect(String(r.oneClickNote || r.trapToAvoid || r.humanSteps || "")).toMatch(/keyless|no-popup/i);
   });
 
   it("create_wallet on shared demo refuses key creation path", async () => {
@@ -36,5 +40,10 @@ describe("self_host guide", () => {
     const r = await runSelfHostGuide({ step: "set_secret" });
     expect(String(r.commands)).toContain("wrangler secret put KASPA_SPENDING_PRIVATE_KEY");
     expect(JSON.stringify(r)).not.toMatch(/0x[0-9a-fA-F]{64}/);
+  });
+
+  it("own_node explains optional independence", async () => {
+    const r = await runSelfHostGuide({ step: "own_node" });
+    expect(String(r.title || "") + JSON.stringify(r)).toMatch(/node|KASPA_REST/i);
   });
 });

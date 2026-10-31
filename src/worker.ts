@@ -22,6 +22,8 @@ import {
 import { setNetworkPreferenceKv, setNetworkClientKey, hydrateSessionNetworkPreference } from "./session-network.js";
 import { setContractPageContext, getContractPage, renderContractPageHtml } from "./contract-page.js";
 import { applyNodeConfigFromEnv } from "./endpoints.js";
+import { requireAuthIfConfigured, stripTokenPathPrefix } from "./auth.js";
+import { privateKeyToAddress } from "./l1/pure/sign.js";
 
 export interface Env extends RateLimitEnv {
   MCP_PUBLIC?: string;
@@ -32,6 +34,10 @@ export interface Env extends RateLimitEnv {
   KASPA_SPENDING_MAINNET?: string;
   KASPA_SPENDING_MAX_KAS?: string;
   KASPA_SPENDING_MAX_TX_KAS?: string;
+  /** Locked withdraw destination; used to seed registry when KV empty */
+  KASPA_SPENDING_MAIN_ADDRESS?: string;
+  /** Private Worker: require Authorization Bearer (or X-Api-Key / /t/<token>/ path) */
+  MCP_AUTH_TOKEN?: string;
   SIGN_SESSIONS?: {
     put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
     get(key: string): Promise<string | null>;
@@ -43,7 +49,7 @@ const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
   "Access-Control-Allow-Headers":
-    "Content-Type, Accept, Mcp-Session-Id, MCP-Protocol-Version, X-Kaspa-Demo-Key",
+    "Content-Type, Accept, Mcp-Session-Id, MCP-Protocol-Version, X-Kaspa-Demo-Key, Authorization, X-Api-Key",
   "Access-Control-Expose-Headers": "Mcp-Session-Id, MCP-Protocol-Version, Retry-After",
   "Access-Control-Max-Age": "86400",
 };
@@ -56,7 +62,12 @@ function withCors(res: Response): Response {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
+    const stripped = stripTokenPathPrefix(new URL(request.url));
+    const url = stripped.url;
+
+    // Auth gate (private Workers). Shared demo leaves MCP_AUTH_TOKEN unset.
+    const auth = requireAuthIfConfigured(request, new URL(request.url), env.MCP_AUTH_TOKEN);
+    if (!auth.ok) return withCors(auth.response);
 
     // Mirror Worker secrets/vars into process.env for shared modules (nodejs_compat).
     // Shared demo: MCP_PUBLIC=true ⇒ spending key loader returns null even if mis-set.
@@ -69,6 +80,7 @@ export default {
       delete process.env.KASPA_SPENDING_PRIVATE_KEY;
     }
     if (env.KASPA_SPENDING_MAINNET) process.env.KASPA_SPENDING_MAINNET = env.KASPA_SPENDING_MAINNET;
+    if (env.KASPA_SPENDING_MAIN_ADDRESS) process.env.KASPA_SPENDING_MAIN_ADDRESS = env.KASPA_SPENDING_MAIN_ADDRESS;
     if (env.KASPA_SPENDING_MAX_KAS) process.env.KASPA_SPENDING_MAX_KAS = env.KASPA_SPENDING_MAX_KAS;
     if (env.KASPA_SPENDING_MAX_TX_KAS) process.env.KASPA_SPENDING_MAX_TX_KAS = env.KASPA_SPENDING_MAX_TX_KAS;
 
@@ -78,7 +90,32 @@ export default {
         process.env.KASPA_SPENDING_REGISTRY_JSON = s;
         await env.SIGN_SESSIONS!.put("spending-registry", s);
       };
-      const existing = await env.SIGN_SESSIONS.get("spending-registry");
+      let existing = await env.SIGN_SESSIONS.get("spending-registry");
+      if (
+        !existing &&
+        env.KASPA_SPENDING_PRIVATE_KEY &&
+        env.KASPA_SPENDING_MAIN_ADDRESS &&
+        env.MCP_PUBLIC !== "true" &&
+        env.MCP_PUBLIC !== "1"
+      ) {
+        try {
+          const netId =
+            env.KASPA_SPENDING_MAIN_ADDRESS.startsWith("kaspatest:") ? "testnet-10" : "mainnet";
+          const spendingAddress = privateKeyToAddress(env.KASPA_SPENDING_PRIVATE_KEY, netId);
+          const seeded = {
+            version: 1,
+            mainAddress: env.KASPA_SPENDING_MAIN_ADDRESS.trim(),
+            spendingAddress,
+            networkId: netId === "mainnet" ? "kaspa-l1-mainnet" : "kaspa-l1-testnet-10",
+            createdAt: new Date().toISOString(),
+            covenants: [],
+          };
+          existing = JSON.stringify(seeded);
+          await env.SIGN_SESSIONS.put("spending-registry", existing);
+        } catch {
+          /* leave unset — tools will error clearly */
+        }
+      }
       if (existing) process.env.KASPA_SPENDING_REGISTRY_JSON = existing;
       setNetworkPreferenceKv(env.SIGN_SESSIONS);
       setContractPageContext({ kv: env.SIGN_SESSIONS, publicBaseUrl: url.origin });
@@ -109,6 +146,8 @@ export default {
           l1MainnetPrepare: env.KASPA_L1_MAINNET_WRITES === "1" || env.KASPA_L1_MAINNET_WRITES === "true",
           signSessions: Boolean(env.SIGN_SESSIONS),
           spendingWallet: Boolean(env.KASPA_SPENDING_PRIVATE_KEY) && env.MCP_PUBLIC !== "true",
+          authRequired: Boolean(env.MCP_AUTH_TOKEN?.trim()),
+          privateWorker: Boolean(env.MCP_AUTH_TOKEN?.trim()),
           pureJsSigner: true,
           compileHint:
             "Workers: pure-JS L1 signer for self-host auto-sign (secret on YOUR account). Shared demo is keyless (MCP_PUBLIC). No solc/silverc on Worker — TipJar/Vault/Escrow rebind built-in. Own node: KASPA_REST_URLS.",
@@ -135,10 +174,11 @@ export default {
       const id = url.pathname.slice("/page/".length).split("/")[0] || "";
       const rec = await getContractPage(id);
       if (!rec) return withCors(new Response("Contract page not found or expired", { status: 404 }));
+      const html = await renderContractPageHtml(rec);
       return withCors(
-        new Response(renderContractPageHtml(rec), {
+        new Response(html, {
           status: 200,
-          headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60" },
+          headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=30" },
         }),
       );
     }
@@ -173,7 +213,8 @@ export default {
       }
     }
 
-    const forwarded = new Request(request.url, {
+    const forwardUrl = url.pathname === "/mcp" ? `${url.origin}/mcp` : request.url;
+    const forwarded = new Request(forwardUrl, {
       method: request.method,
       headers: request.headers,
       body: bodyText || undefined,

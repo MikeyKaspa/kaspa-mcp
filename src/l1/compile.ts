@@ -60,6 +60,6 @@ export function silvercCompileHint(): string {
   return (
     "Install official silverc v1.0.0 from https://github.com/kaspanet/silverscript/releases — " +
     "put it on PATH or set SILVERC_PATH. Shared Workers demo cannot compile (no WASM silverc; no eval). " +
-    "Use silverscript_templates + silverscript_load_artifact, or self-host with npm start."
+    "Use silverscript_templates (TipJar/Vault/Escrow rebind on Workers) or paste an artifact. Optional: local silverc via SILVERC_PATH."
   );
 }

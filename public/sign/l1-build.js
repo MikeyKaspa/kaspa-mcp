@@ -160,6 +160,16 @@ export async function buildFundTx(build) {
   const redeem = hexToBytes(build.bytecodeHex);
   const p2shScript = payToScriptHashScript(redeem);
   const p2shAddr = addressFromScriptPublicKey(p2shScript, net).toString();
+  const expected = (build.expectedP2shAddress || "").trim();
+  if (expected && expected.toLowerCase() !== p2shAddr.toLowerCase()) {
+    throw new Error(
+      "SECURITY: computed P2SH " +
+        p2shAddr +
+        " does not match expected contract " +
+        expected +
+        ". Refusing to build — do not approve. Re-prepare fund with the owner-bound tipjar.",
+    );
+  }
 
   const { transactions, summary } = await createTransactions({
     entries,
@@ -365,9 +375,11 @@ export function summarizeBuiltSafeJson(safeJson, opts) {
     );
   }
 
-  if (opts.destinationAddress) {
-    plainLines.push({ label: "Destination", value: opts.destinationAddress });
-    detailLines.push({ label: "Destination", value: opts.destinationAddress });
+  const dest = opts.destinationAddress || (isFund ? opts.p2shAddress : null);
+  if (dest) {
+    // Destination is safety-critical — show first in the plain summary (not buried in Details).
+    plainLines.unshift({ label: "Destination (verify)", value: dest });
+    detailLines.push({ label: "Destination", value: dest });
   }
   detailLines.unshift({ label: "Network", value: opts.networkLabel });
   if (contract) detailLines.unshift({ label: "Contract", value: contract });

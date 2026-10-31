@@ -3,7 +3,7 @@
     "templateId": "timeout_vault",
     "silverc": "v1.0.0",
     "networkHint": "testnet-10",
-    "demoPrivateKeyNote": "Throwaway test vector privkey = 32-byte 0x01 (NOT for real funds). Recompile with your keys via self-host silverc.",
+    "demoPrivateKeyNote": "Demo-only sample (not for real funds). On your own copy the bot rebinds the template to your spending wallet automatically — no manual key compile step.",
     "demoAddress": "kaspatest:qpumuen7l8wthtz45p3ftn58pvrs9xlumvkuu2xet8egzkcklqtes5z8rkmpd",
     "exampleP2shTestnet10": "kaspatest:pzw2pu32alulge2gv0phjpavgyjlc9plj2vm94lf8vyav3jl9madu3x9qadk5",
     "bytecodeLen": 128,

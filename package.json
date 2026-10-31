@@ -43,7 +43,8 @@
     "test:l1": "vitest run tests/l1-silverscript.test.ts",
     "e2e:l1-thorough": "tsx scripts/e2e-l1-thorough.mjs",
     "e2e:spending-wallet": "npm run build && SILVERC_PATH=${SILVERC_PATH:-/workspace/silverscript-tools/silverc} node scripts/e2e-spending-wallet.mjs",
-    "e2e:worker-selfhost": "node scripts/e2e-worker-selfhost.mjs"
+    "e2e:worker-selfhost": "node scripts/e2e-worker-selfhost.mjs",
+    "selfhost:setup": "node scripts/selfhost-setup.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
@@ -53,6 +54,7 @@
     "ethers": "^6.17.0",
     "kaspa": "file:./vendor/kaspa",
     "solc": "^0.8.28",
+    "uqr": "^0.1.3",
     "zod": "^3.24.0"
   },
   "devDependencies": {

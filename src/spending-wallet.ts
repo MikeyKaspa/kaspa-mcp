@@ -446,16 +446,18 @@ export async function createSpendingWallet(opts: {
     backupHint: privateKeyOnce
       ? `SAVE THIS KEY NOW (shown once). On YOUR Cloudflare account run:\n` +
         `  printf '%s' '<paste-key-here>' | npx wrangler secret put ${SPENDING_ENV_KEY} -c wrangler.selfhost.toml\n` +
-        `Then reconnect MCP to https://<your-worker>.workers.dev/mcp and call spending_wallet_status.`
+        `Or: npm run selfhost:setup -- --create-wallet --main-address <your-address>\n` +
+        `Then call spending_wallet_status on YOUR …/mcp URL.`
       : `Key written to ${persistedTo} (mode 600). Never paste into chat.`,
     wranglerHint: `printf '%s' '<key>' | npx wrangler secret put ${SPENDING_ENV_KEY} -c wrangler.selfhost.toml`,
     setupSteps: privateKeyOnce
       ? [
-          "1. Copy privateKeyHex from this response (one-shot; never logged by the Worker afterward).",
-          `2. In your clone: printf '%s' '0x…' | npx wrangler secret put ${SPENDING_ENV_KEY} -c wrangler.selfhost.toml`,
-          "3. Fund the spending address on TN10 (faucet or transfer).",
-          "4. Call l1_tipjar_chat_deploy or l1_prepare_fund with autoSignBroadcast + reviewed templateId.",
-          "5. spending_wallet_withdraw_all sweeps only to locked mainAddress.",
+          "1. Copy privateKeyHex from this response (shown once; Worker will not store it in chat logs after this).",
+          `2. In your kaspa-mcp folder (same -c file you deployed): printf '%s' '0x…' | npx wrangler secret put ${SPENDING_ENV_KEY} -c wrangler.selfhost.toml`,
+          "   Or re-run: npm run selfhost:setup -- --create-wallet --main-address <your-kaspatest>",
+          "3. Fund the spending address on TN10 (https://faucet-tn10.kaspanet.io/).",
+          "4. In chat: choose_network testnet, then “build me a tip jar” (l1_tipjar_chat_deploy).",
+          "5. spending_wallet_withdraw_all can only send leftovers to your locked mainAddress.",
         ]
       : [
           `1. Key is at ${persistedTo} — do not commit it.`,

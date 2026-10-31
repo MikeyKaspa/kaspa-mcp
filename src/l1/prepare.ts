@@ -85,9 +85,8 @@ export interface PrepareSpendResult {
 }
 
 export const KASWARE_HINT =
-  "KasWare fund: signPskt({ txJsonString: safeJson }) then pushTx, or pushPskt({ txJsonString }). " +
-  "Spend: SilverScript unlock must be filled first (testnet privateKey path or compatible signer), then pushTx. " +
-  "Docs: https://docs.kasware.xyz/wallet/developer-documentation/kaspa/kaspa-transaction";
+  "Approve in KasWare (desktop/Android), Kastle, or Kaspire via the tap-to-approve link. " +
+  "Kaspium and KaChat cannot approve yet. Want no popups? Use self_host for your own copy.";
 
 const KASWARE_SOURCE_CITE =
   "kasware-wallet/extension wallet.ts: signPskt=deserializeFromSafeJSON→walletSignTransaction→serializeToSafeJSON; " +

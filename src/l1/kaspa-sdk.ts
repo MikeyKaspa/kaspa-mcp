@@ -13,10 +13,10 @@ export async function loadKaspa(): Promise<KaspaModule> {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     throw new Error(
-      `kaspa-wasm unavailable in this runtime (${msg}). ` +
-        `Self-host with Node 20+ (\`npm start\`) for L1 P2SH / fund / spend helpers. ` +
-        `Shared Workers demo still serves templates + load_artifact. ` +
-        `Web wasm (~11 MiB) exceeds the free Worker bundle limit.`,
+      `kaspa-wasm Node package unavailable in this runtime (${msg}). ` +
+        `On the public connector use tap-to-approve (/sign/…) — the page builds + signs in the browser (KasWare/Kastle/Kaspire). ` +
+        `Templates, prepare_fund/spend (browser_build), and self-host Cloudflare Workers use the pure-JS signer. ` +
+        `Optional: local Node (npm start) if you want the Node wasm package.`,
     );
   }
 }

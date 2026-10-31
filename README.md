@@ -14,6 +14,8 @@ MIT · Non-custodial · Designed for **$0** (public RPCs + free testnet faucets)
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/MikeyKaspa/kaspa-mcp)
 
+> Deploy button = **keyless** copy (tap-to-approve). For chat-deploy **without popups**, use `npm run selfhost:setup` (see Self-host below).
+
 
 ## Network choice
 
@@ -52,16 +54,22 @@ Over the limit you get a JSON-RPC `-32000` / HTTP 429 asking you to **self-host*
 
 Rate limits are **off by default** for self-hosters. Set `RATE_LIMIT_ENABLED=true` (and optional `RATE_LIMIT_*` vars) only if you want them.
 
-## Self-host (recommended for heavy use)
+## Self-host (recommended for heavy use + no-popup chat-deploy)
 
-**Free Cloudflare (own account, own 100k/day):**
+**Free Cloudflare — no-popup path (your own capped spending wallet):**
 
 ```bash
+git clone https://github.com/MikeyKaspa/kaspa-mcp && cd kaspa-mcp
 npm install
-npx wrangler deploy   # workers.dev only — stay on the free plan; no custom domain required
+npx wrangler login
+npm run selfhost:setup
+# optional wallet in one go:
+# npm run selfhost:setup -- --create-wallet --main-address kaspatest:YOUR_ADDRESS
 ```
 
-Or use the **Deploy to Cloudflare** button above (opens Cloudflare’s one-click deploy for this public repo).
+That deploys `wrangler.selfhost.toml` (never overwrites the public shared demo). Then paste the printed `…/mcp` URL into your AI app, fund the spending address from the [TN10 faucet](https://faucet-tn10.kaspanet.io/), and say “build me a tip jar”. Guided steps also live in the `self_host` MCP tool.
+
+**Keyless copy only (tap-to-approve, no spending key):** use the **Deploy to Cloudflare** button above, or `npx wrangler deploy` with the default `wrangler.toml` (`MCP_PUBLIC=true`).
 
 **Local (no shared limits, offline solc):**
 

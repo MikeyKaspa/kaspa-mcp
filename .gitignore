@@ -47,3 +47,9 @@ Thumbs.db
 .e2e-worker-spending.secret
 .e2e-spending.key
 .e2e-spending.registry.json
+
+# Local newbie-sim / private worker configs (never commit)
+wrangler.newuser.toml
+wrangler.michael.toml
+.selfhost-setup.secret
+.e2e-worker-spending.secret
