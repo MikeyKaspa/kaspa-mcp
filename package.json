@@ -41,7 +41,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "e2e:l1-tn10": "tsx scripts/e2e-l1-tn10.mjs",
     "test:l1": "vitest run tests/l1-silverscript.test.ts",
-    "e2e:l1-thorough": "tsx scripts/e2e-l1-thorough.mjs"
+    "e2e:l1-thorough": "tsx scripts/e2e-l1-thorough.mjs",
+    "e2e:spending-wallet": "npm run build && SILVERC_PATH=${SILVERC_PATH:-/workspace/silverscript-tools/silverc} node scripts/e2e-spending-wallet.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

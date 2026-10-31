@@ -22,6 +22,19 @@ import { L1_UNAUDITED_WARNING, kaspaWasmAvailable } from "./l1/kaspa-sdk.js";
 import { attachTapToApprove, utxoApiBaseFor, kaspaNetworkFor, contractLabelFor } from "./sign/attach.js";
 import { compileSilverscript, isSilvercAvailable, silvercCompileHint } from "./l1/compile.js";
 import { coerceBytecode } from "./l1/artifact.js";
+import {
+  createSpendingWallet,
+  spendingWalletStatus,
+  isSharedPublicDemo,
+  ownerPkhHex,
+  addressForKey,
+  assertCanAutoSign,
+  assertReviewedTemplate,
+  refuseKeyExport,
+  refuseCapChangeViaChat,
+  REVIEWED_TEMPLATE_IDS,
+} from "./spending-wallet.js";
+import { autoFundCovenant, autoSpendCovenant, spendingWalletWithdrawAll, balanceSompi } from "./l1/auto-sign.js";
 
 function ok(data: unknown): TextJson {
   return {
@@ -682,16 +695,17 @@ export function createKaspaMcpServer(): McpServer {
     "l1_prepare_fund",
     {
       description:
-        "Build unsigned fund tx (UTXO select + fees + change) as KasWare SafeJSON for signPskt→pushTx (or sendKaspa to P2SH). Mainnet prepare-only when KASPA_L1_MAINNET_WRITES=1 (wallet signs; keys refused). Min 0.1 KAS. Requires kaspa-wasm (Node self-host); Workers cannot load Node wasm. UNAUDITED / use at own risk.",
+        "Build fund tx for a P2SH covenant. Default: unsigned SafeJSON + tapToApprove. With autoSignBroadcast=true on self-host with a spending wallet, signs+broadcasts (testnet default; mainnet needs KASPA_SPENDING_MAINNET=1). Shared demo never auto-signs. UNAUDITED.",
       inputSchema: {
         network: z.string().default("kaspa-l1-testnet-10"),
-        fromAddress: z.string(),
+        fromAddress: z.string().optional().describe("Required unless autoSignBroadcast (then spending wallet address is used)"),
         amountSompi: z.union([z.string(), z.number()]),
         priorityFeeSompi: z.union([z.string(), z.number()]).optional(),
         bytecodeHex: z.string().optional(),
         artifact: z.unknown().optional(),
         contractName: z.string().optional(),
         templateId: z.string().optional(),
+        autoSignBroadcast: z.boolean().optional().describe("Self-host spending wallet: sign+broadcast. Ignored/refused on shared demo."),
       },
     },
     async (a) => {
@@ -718,6 +732,37 @@ export function createKaspaMcpServer(): McpServer {
           amountSompi: String(a.amountSompi),
           priorityFeeSompi: a.priorityFeeSompi != null ? String(a.priorityFeeSompi) : undefined,
         };
+        if (a.autoSignBroadcast) {
+          if (isSharedPublicDemo()) {
+            throw new SafetyError("autoSignBroadcast refused on shared demo — self-host + spending_wallet_create");
+          }
+          if (!(await kaspaWasmAvailable())) {
+            throw new Error(
+              "autoSignBroadcast requires Node self-host (kaspa-wasm). Shared Workers use tap-to-approve instead.",
+            );
+          }
+          if (!a.templateId) {
+            throw new SafetyError(
+              "autoSignBroadcast fund requires templateId from the reviewed allowlist: " +
+                REVIEWED_TEMPLATE_IDS.join(", "),
+            );
+          }
+          assertReviewedTemplate(a.templateId);
+          const result = await autoFundCovenant({
+            network,
+            bytecode: loadedBc,
+            amountSompi: BigInt(a.amountSompi),
+            priorityFeeSompi: a.priorityFeeSompi != null ? BigInt(a.priorityFeeSompi) : undefined,
+            templateId: a.templateId,
+          });
+          return ok({
+            safety: SAFETY_BANNER,
+            warning: L1_UNAUDITED_WARNING,
+            mode: "spending_wallet_broadcast",
+            ...result,
+            tapToApproveOptional: "Still available via prepare without autoSignBroadcast",
+          });
+        }
         // Prefer browser-build session so shared Worker works without Node wasm.
         const useNode = await kaspaWasmAvailable();
         if (!useNode) {
@@ -743,6 +788,7 @@ export function createKaspaMcpServer(): McpServer {
             note: "Open tapToApprove.url — the page builds the fund tx with kaspa-wasm (static asset) and signs via KasWare signPskt→pushTx.",
           });
         }
+        if (!a.fromAddress) throw new Error("fromAddress required unless autoSignBroadcast");
         const prepared = await prepareFund({
           network,
           bytecode: loadedBc,
@@ -771,7 +817,7 @@ export function createKaspaMcpServer(): McpServer {
     "l1_prepare_spend",
     {
       description:
-        "Prepare spending a P2SH covenant UTXO via a SilverScript entry. Pass entry args; null/\"$sig\"/\"$pk\" + testnet privateKey auto-fills unlock (TESTNET ONLY). Mainnet prepare-only when enabled: unsigned SafeJSON / pre-filled unlock for wallet pushTx — privateKey always rejected. Requires kaspa-wasm (Node). UNAUDITED / use at own risk.",
+        "Prepare/spend a P2SH covenant UTXO. Default: prepare + tapToApprove. autoSignBroadcast uses self-host spending wallet (fills $sig/$pk). Chat privateKey still TESTNET-only ephemeral; preferred path is spending wallet. Shared demo never auto-signs. UNAUDITED.",
       inputSchema: {
         network: z.string().default("kaspa-l1-testnet-10"),
         entry: z.string(),
@@ -789,7 +835,8 @@ export function createKaspaMcpServer(): McpServer {
         templateId: z.string().optional(),
         feeSompi: z.union([z.string(), z.number()]).optional(),
         outputAmountSompi: z.union([z.string(), z.number()]).optional(),
-        privateKey: z.string().optional().describe("TESTNET ONLY. Hex without 0x ok for Kaspa."),
+        privateKey: z.string().optional().describe("TESTNET ONLY ephemeral. Prefer spending wallet + autoSignBroadcast."),
+        autoSignBroadcast: z.boolean().optional().describe("Self-host spending wallet sign+broadcast"),
       },
     },
     async (a) => {
@@ -824,6 +871,36 @@ export function createKaspaMcpServer(): McpServer {
             scriptPublicKey: a.utxo.scriptPublicKey,
           },
         };
+        if (a.autoSignBroadcast) {
+          if (isSharedPublicDemo()) {
+            throw new SafetyError("autoSignBroadcast refused on shared demo — self-host + spending_wallet_create");
+          }
+          if (!(await kaspaWasmAvailable())) {
+            throw new Error(
+              "autoSignBroadcast requires Node self-host (kaspa-wasm). Shared Workers use tap-to-approve instead.",
+            );
+          }
+          const result = await autoSpendCovenant({
+            network,
+            loaded,
+            entryName: a.entry,
+            args: a.args,
+            destinationAddress: a.destinationAddress,
+            feeSompi: a.feeSompi != null ? BigInt(a.feeSompi) : undefined,
+            outputAmountSompi: a.outputAmountSompi != null ? BigInt(a.outputAmountSompi) : undefined,
+            p2shUtxo: {
+              outpoint: { transactionId: a.utxo.transactionId, index: a.utxo.index },
+              amount: BigInt(a.utxo.amountSompi),
+              scriptPublicKey: a.utxo.scriptPublicKey,
+            },
+          });
+          return ok({
+            safety: SAFETY_BANNER,
+            warning: L1_UNAUDITED_WARNING,
+            mode: "spending_wallet_broadcast",
+            ...result,
+          });
+        }
         const useNode = await kaspaWasmAvailable();
         if (!useNode) {
           const tapToApprove = await attachTapToApprove("l1-spend", network.id, {
@@ -880,7 +957,209 @@ export function createKaspaMcpServer(): McpServer {
   );
 
 
-  // Resources for brainstorming / docs
+
+
+  server.registerTool(
+    "spending_wallet_create",
+    {
+      description:
+        "SELF-HOST ONLY. Create a fresh dedicated Kaspa spending wallet for chat-deploy. " +
+        "REQUIRES mainAddress (your cold/main wallet) — the only destination withdraw_all may use. " +
+        "Key is written to a local file (never echoed in chat JSON). Refused on shared demo. " +
+        "Never accepts a pasted main-wallet key/seed.",
+      inputSchema: {
+        network: z.string().default("kaspa-l1-testnet-10"),
+        mainAddress: z
+          .string()
+          .describe("Locked withdraw destination (your main/cold kaspatest:/kaspa: address). Required."),
+        persist: z.boolean().optional().describe("Must be true/omitted — key file persist is mandatory."),
+      },
+    },
+    async (a) => {
+      try {
+        const network = getNetwork(a.network);
+        if (!a.mainAddress?.trim()) {
+          throw new SafetyError("mainAddress is required (locked withdraw_all destination)");
+        }
+        const created = await createSpendingWallet({
+          network,
+          mainAddress: a.mainAddress,
+          persist: a.persist,
+        });
+        // Deliberately omit privateKeyHex from MCP response (bomb-proof).
+        return ok({
+          safety: SAFETY_BANNER,
+          warning: created.warning,
+          address: created.address,
+          mainAddress: created.mainAddress,
+          networkId: created.networkId,
+          persistedTo: created.persistedTo,
+          registryPath: created.registryPath,
+          backupHint: created.backupHint,
+          wranglerHint: created.wranglerHint,
+          allowlist: [...REVIEWED_TEMPLATE_IDS],
+          nextSteps: [
+            `Fund ${created.address} on ${network.isTestnet ? "TN10" : "mainnet (≤ cap)"}`,
+            created.backupHint,
+            "Then: l1_tipjar_chat_deploy or autoSignBroadcast with reviewed templateId",
+            "withdraw_all → locked mainAddress only",
+          ],
+        });
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "spending_wallet_status",
+    {
+      description:
+        "Show spending wallet config (address, mainAddress, caps, covenant count). Never returns the private key.",
+      inputSchema: { network: z.string().default("kaspa-l1-testnet-10") },
+    },
+    async (a) => {
+      try {
+        const network = getNetwork(a.network);
+        const status = await spendingWalletStatus(network);
+        let balanceSompiStr: string | undefined;
+        if (status.address) {
+          try {
+            balanceSompiStr = (await balanceSompi(network, status.address)).toString();
+          } catch {
+            balanceSompiStr = undefined;
+          }
+        }
+        return ok({ safety: SAFETY_BANNER, ...status, balanceSompi: balanceSompiStr });
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "spending_wallet_withdraw_all",
+    {
+      description:
+        "SELF-HOST ONLY. Sweep the entire spending wallet balance to the locked mainAddress set at creation. " +
+        "No destination parameter (prompt-injection cannot redirect). Caps still apply on mainnet.",
+      inputSchema: {
+        network: z.string().default("kaspa-l1-testnet-10"),
+        priorityFeeSompi: z.union([z.string(), z.number()]).optional(),
+      },
+    },
+    async (a) => {
+      try {
+        const network = getNetwork(a.network);
+        const result = await spendingWalletWithdrawAll({
+          network,
+          priorityFeeSompi: a.priorityFeeSompi != null ? BigInt(a.priorityFeeSompi) : undefined,
+        });
+        return ok({
+          safety: SAFETY_BANNER,
+          warning: L1_UNAUDITED_WARNING,
+          mode: "spending_wallet_withdraw_all",
+          ...result,
+        });
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "spending_wallet_export_key",
+    {
+      description:
+        "Always refused. Exists so agents/prompt-injection attempting to export the spending key get a clear denial.",
+      inputSchema: { confirm: z.string().optional() },
+    },
+    async () => {
+      try {
+        refuseKeyExport();
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "spending_wallet_set_limits",
+    {
+      description:
+        "Always refused. Caps are deploy-time env only (not raisable via chat).",
+      inputSchema: {
+        maxKas: z.union([z.string(), z.number()]).optional(),
+        maxTxKas: z.union([z.string(), z.number()]).optional(),
+      },
+    },
+    async () => {
+      try {
+        refuseCapChangeViaChat();
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "l1_tipjar_chat_deploy",
+    {
+      description:
+        "SELF-HOST ONLY. Chat-deploy reviewed TipJar with spending wallet as owner: silverc → fund P2SH → registry. " +
+        "No wallet popup. Requires spending_wallet_create({ mainAddress }) + funded address + SILVERC_PATH.",
+      inputSchema: {
+        network: z.string().default("kaspa-l1-testnet-10"),
+        amountSompi: z.union([z.string(), z.number()]).default("100000000").describe("Fund amount (default 1 tKAS)"),
+        priorityFeeSompi: z.union([z.string(), z.number()]).optional(),
+      },
+    },
+    async (a) => {
+      try {
+        if (isSharedPublicDemo()) {
+          throw new SafetyError("l1_tipjar_chat_deploy refused on shared demo — self-host");
+        }
+        if (!isSilvercAvailable()) {
+          throw new Error(`silverc required for owner-bound TipJar. ${silvercCompileHint()}`);
+        }
+        const network = getNetwork(a.network);
+        const key = assertCanAutoSign(network);
+        const ownerAddress = await addressForKey(key.hex, network);
+        const pkhHex = await ownerPkhHex(key.hex);
+        const pkh = Array.from(Buffer.from(pkhHex, "hex"));
+        const tipjar = getTemplate("tipjar");
+        const loaded = compileSilverscript({
+          source: tipjar.source,
+          constructorArgs: [{ kind: "bytes", value: pkh }],
+        });
+        const funded = await autoFundCovenant({
+          network,
+          bytecode: loaded.bytecode,
+          amountSompi: BigInt(a.amountSompi),
+          priorityFeeSompi: a.priorityFeeSompi != null ? BigInt(a.priorityFeeSompi) : undefined,
+          templateId: "tipjar",
+        });
+        return ok({
+          safety: SAFETY_BANNER,
+          warning: L1_UNAUDITED_WARNING,
+          mode: "spending_wallet_tipjar_deploy",
+          ownerAddress,
+          ownerPkhHex: pkhHex,
+          artifact: {
+            entries: loaded.entries,
+            bytecodeHex: loaded.bytecodeHex,
+            contractName: loaded.contractName,
+          },
+          ...funded,
+          next: "Wait for P2SH UTXO, then l1_prepare_spend autoSignBroadcast entry withdraw (args [null,null]) to spending address or mainAddress. Or spending_wallet_withdraw_all.",
+        });
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  // Resources for brainstorming  // Resources for brainstorming / docs
   server.registerResource(
     "overview",
     "kaspa-mcp://docs/overview",
@@ -930,7 +1209,7 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
         {
           uri: "kaspa-mcp://docs/safety",
           mimeType: "text/markdown",
-          text: `# Safety model\n\n${SAFETY_BANNER}\n\n${L1_UNAUDITED_WARNING}\n\n- No key persistence\n- Mainnet private keys always rejected\n- Mainnet L1 = prepare unsigned SafeJSON only (wallet signs)\n- Testnet privateKey is per-request only\n- Prefer prepare_* + external wallet for anything of value\n`,
+          text: `# Safety model\n\n${SAFETY_BANNER}\n\n${L1_UNAUDITED_WARNING}\n\n- Shared demo: no key persistence\n- Self-host spending wallet: dedicated key in env/file on YOUR deployment only\n- Never paste a main wallet seed into chat\n- Mainnet chat privateKey always rejected; spending wallet mainnet needs KASPA_SPENDING_MAINNET=1 + balance cap\n- Tap-to-approve remains the default non-custodial path\n`,
         },
       ],
     }),

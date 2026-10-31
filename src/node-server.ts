@@ -40,6 +40,8 @@ const httpServer = createServer(async (req, res) => {
           version: "0.1.0",
           signSessions: true,
           l1MainnetPrepare: process.env.KASPA_L1_MAINNET_WRITES === "1",
+          spendingWalletConfigured: Boolean(process.env.KASPA_SPENDING_PRIVATE_KEY) || false,
+          spendingMainnet: process.env.KASPA_SPENDING_MAINNET === "1",
         }),
       );
       return;

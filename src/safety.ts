@@ -3,14 +3,13 @@ import type { NetworkInfo } from "./types.js";
 /**
  * Non-custodial safety model (documented for every write tool):
  *
- * 1. This server NEVER persists private keys, mnemonics, or seed phrases.
- * 2. Mainnet / real-value networks: private keys are REJECTED. Tools return
- *    unsigned transaction payloads for the user to sign in their own wallet.
- * 3. Testnet only: an optional per-call `privateKey` may be passed so an agent
- *    can complete a faucet→deploy demo. It lives only in that request's memory
- *    and must never be logged or written to disk by this server.
- * 4. Prefer generating a throwaway testnet key locally for demos.
- * 5. No paid APIs, no custodian, no hosted wallet. Public RPCs + free faucets only.
+ * 1. Shared public demo NEVER persists private keys, mnemonics, or seed phrases.
+ * 2. Self-host spending wallet (optional): a dedicated key may live in the user's
+ *    own env/file/Worker secret — never on the shared demo, never a main-wallet seed.
+ * 3. Mainnet / real-value: chat `privateKey` is REJECTED. Spending-wallet mainnet
+ *    auto-sign requires explicit KASPA_SPENDING_MAINNET=1 + balance cap.
+ * 4. Testnet: optional per-call `privateKey` OR spending wallet auto-sign.
+ * 5. Prefer tap-to-approve for anything of value. No paid APIs / custodians.
  */
 
 export class SafetyError extends Error {
@@ -51,4 +50,4 @@ export function redactSecrets(text: string): string {
     .replace(/\b([a-z]+ ){11}[a-z]+\b/gi, "[REDACTED_MNEMONIC]");
 }
 
-export const SAFETY_BANNER = `Safety: non-custodial. No keys stored. Mainnet = unsigned tx only. Testnet privateKey is per-call ephemeral. $0 public RPCs + free faucets only.`;
+export const SAFETY_BANNER = `Safety: non-custodial. Shared demo stores no keys. Self-host optional spending wallet (dedicated key on YOUR deploy only). Mainnet chat keys rejected; tap-to-approve default. $0 public RPCs + free faucets.`;

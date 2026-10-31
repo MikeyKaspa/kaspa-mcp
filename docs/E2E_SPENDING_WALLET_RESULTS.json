@@ -1,0 +1,42 @@
+{
+  "ok": true,
+  "steps": [
+    {
+      "step": "create",
+      "address": "kaspatest:qzawwkyf2ktsf9vkqmkxk0qa8j9cqtqc8vc7pq3luhrv9086chrxzyfjplw34",
+      "mainAddress": "kaspatest:qza6ey35a278ft60rhvjfna96dznge4qrlw9zgr7zedngjzqvd97u9t9lscq6",
+      "persisted": true
+    },
+    {
+      "step": "fund_spending_wallet",
+      "txid": "5d454bfb7bd0a7eae108f8acd238eb02e9c7014e5a4b826a7dc96918a9d544ad",
+      "amountSompi": "200000000"
+    },
+    {
+      "step": "spending_balance",
+      "balanceSompi": "200000000"
+    },
+    {
+      "step": "tipjar_fund",
+      "p2shAddress": "kaspatest:pza8l60t4v9k8qtgq5nq9nwfzqys7ccwk7lnwnen8d77z8xjlmdw6rallfe53",
+      "txid": "8ca3736b9d9aa30c4948bc50de1acc5d12c650164cd4c81b26cc691727e94f88",
+      "explorer": "https://tn10.kaspa.stream/transactions/8ca3736b9d9aa30c4948bc50de1acc5d12c650164cd4c81b26cc691727e94f88"
+    },
+    {
+      "step": "tipjar_withdraw",
+      "txid": "07fc406b41006f175cdf0da24b8ec17d8e2b655e8ebc299e96e7b3aad1f7bf31",
+      "explorer": "https://tn10.kaspa.stream/transactions/07fc406b41006f175cdf0da24b8ec17d8e2b655e8ebc299e96e7b3aad1f7bf31"
+    },
+    {
+      "step": "balance_before_withdraw_all",
+      "balanceSompi": "199485300"
+    },
+    {
+      "step": "withdraw_all",
+      "txid": "76f2d660ea7ddc3df71c12a7821660731cf9f6d6599029fd74e579827642c9d7",
+      "amountSompi": "100000000",
+      "destination": "kaspatest:qza6ey35a278ft60rhvjfna96dznge4qrlw9zgr7zedngjzqvd97u9t9lscq6"
+    }
+  ],
+  "at": "2026-10-31T00:40:58.781Z"
+}

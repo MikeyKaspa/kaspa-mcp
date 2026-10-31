@@ -346,7 +346,13 @@ export async function prepareSpend(opts: {
 
     const filled = opts.args.map((a, i) => {
       const kind = entry.params[i]?.type.kind;
-      if (a === null || a === undefined || a === "$sig" || a === "$signature") {
+      // null/undefined = auto-fill for sig or pubkey when we have a private key (chat-deploy / spending wallet)
+      if (a === null || a === undefined) {
+        if (kind === "sig") return sigBytes;
+        if (kind === "pubkey") return xonly;
+        throw new Error(`null placeholder on non-sig/pubkey param ${entry.params[i]?.name}`);
+      }
+      if (a === "$sig" || a === "$signature") {
         if (kind !== "sig") throw new Error(`$sig placeholder on non-sig param ${entry.params[i]?.name}`);
         return sigBytes;
       }

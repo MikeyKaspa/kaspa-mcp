@@ -61,6 +61,7 @@ export default {
           silverscriptCompileOnWorker: false,
           l1MainnetPrepare: env.KASPA_L1_MAINNET_WRITES === "1" || env.KASPA_L1_MAINNET_WRITES === "true",
           signSessions: Boolean(env.SIGN_SESSIONS),
+          spendingWallet: false, // shared demo never holds spending keys
           compileHint:
             "Workers: no solc/silverc. L1 prepare = browser_build via /kaspa-wasm assets + tap link. Self-host npm start for Node prepare + silverc.",
         }),
