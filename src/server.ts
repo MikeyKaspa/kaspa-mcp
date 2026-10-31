@@ -1128,6 +1128,108 @@ export function createKaspaMcpServer(): McpServer {
   );
 
   server.registerTool(
+    "l1_prepare_send",
+    {
+      annotations: TOOL_ANNOTATIONS.l1_prepare_send,
+      description:
+        "Prepare a ONE-TAP Send KAS link (public demo OK). User opens tapToApprove.url and approves in KasWare/Kastle/Kaspire OR the built-in Quick-start wallet (passkey/PIN on device — server never sees keys). " +
+        "Use when the user says e.g. 'send 3 KAS to <address>'. Validates mainnet vs testnet address prefixes. Prefer testnet. UNAUDITED on mainnet.",
+      inputSchema: {
+        network: z
+          .string()
+          .optional()
+          .describe("L1 network id. Omit only after choose_network — otherwise ask Testnet or mainnet?"),
+        fromAddress: z
+          .string()
+          .describe("Sender P2PK address (kaspa: / kaspatest:). For Quick-start wallet, use the address shown on the approve page."),
+        toAddress: z.string().describe("Destination P2PK address — must match network prefix"),
+        amountSompi: z.union([z.string(), z.number()]).describe("Amount in sompi (1 KAS = 100000000). Ignored when sendMax=true."),
+        priorityFeeSompi: z.union([z.string(), z.number()]).optional(),
+        sendMax: z.boolean().optional().describe("If true, send (balance − fee) and ignore amountSompi for the build amount hint"),
+      },
+    },
+    async (a) => {
+      try {
+        const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
+        const ask = needNetworkChoicePayload(resolved);
+        if (ask) return ask;
+        if (!resolved.ok) return err("network resolve failed");
+        const network = resolved.network;
+        const kaspaNetwork = kaspaNetworkFor(network.id, network.isTestnet);
+        const fromAddress = a.fromAddress.trim();
+        const toAddress = a.toAddress.trim();
+        if (kaspaNetwork === "testnet-10") {
+          if (!fromAddress.toLowerCase().startsWith("kaspatest:")) {
+            throw new Error('fromAddress must start with kaspatest: on testnet-10');
+          }
+          if (!toAddress.toLowerCase().startsWith("kaspatest:")) {
+            throw new Error('toAddress must start with kaspatest: on testnet-10');
+          }
+        } else {
+          if (!fromAddress.toLowerCase().startsWith("kaspa:") || fromAddress.toLowerCase().startsWith("kaspatest:")) {
+            throw new Error('fromAddress must start with kaspa: on mainnet');
+          }
+          if (!toAddress.toLowerCase().startsWith("kaspa:") || toAddress.toLowerCase().startsWith("kaspatest:")) {
+            throw new Error('toAddress must start with kaspa: on mainnet');
+          }
+        }
+        const amountSompi = a.sendMax ? "0" : String(a.amountSompi);
+        if (!a.sendMax && BigInt(amountSompi) <= 0n) throw new Error("amountSompi must be > 0");
+        const l1Build = {
+          buildInBrowser: true as const,
+          kaspaNetwork,
+          utxoApiBase: utxoApiBaseFor(network.id, network.isTestnet),
+          bytecodeHex: "",
+          fromAddress,
+          toAddress,
+          destinationAddress: toAddress,
+          amountSompi,
+          priorityFeeSompi: a.priorityFeeSompi != null ? String(a.priorityFeeSompi) : undefined,
+          sendMax: Boolean(a.sendMax),
+        };
+        const tapToApprove = await attachTapToApprove("l1-send", network.id, {
+          l1Build,
+          meta: {
+            contractName: "Send KAS",
+            templateId: "send",
+            fromAddress,
+            toAddress,
+            amountSompi,
+            sendMax: Boolean(a.sendMax),
+            quickStartHint:
+              "No extension? Use Quick-start wallet on this page (Face ID / PIN). Keys never leave the device.",
+          },
+        });
+        if (!tapToApprove) {
+          throw new Error("Sign session store unavailable — cannot return tapToApprove link");
+        }
+        return ok({
+          safety: SAFETY_BANNER,
+          warning: network.isTestnet ? undefined : L1_UNAUDITED_WARNING,
+          mode: "browser_build",
+          networkId: network.id,
+          kaspaNetwork,
+          fromAddress,
+          toAddress,
+          amountSompi,
+          sendMax: Boolean(a.sendMax),
+          tapToApprove,
+          tellUser:
+            "Open the approve link. Connect KasWare/Kastle/Kaspire, or create/unlock the Quick-start wallet on the page, then Approve. " +
+            (network.isTestnet
+              ? "Testnet: free faucet at " + TN10_FAUCET_URL
+              : "MAINNET: UNAUDITED — review amount and destination carefully."),
+          wallets: WALLET_TAP_APPROVE,
+          quickStartWallet: true,
+          note: TAP_APPROVE_NOTE,
+        });
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.registerTool(
     "l1_prepare_spend",
     {
       annotations: TOOL_ANNOTATIONS.l1_prepare_spend,

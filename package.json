@@ -44,7 +44,8 @@
     "e2e:l1-thorough": "tsx scripts/e2e-l1-thorough.mjs",
     "e2e:spending-wallet": "npm run build && SILVERC_PATH=${SILVERC_PATH:-/workspace/silverscript-tools/silverc} node scripts/e2e-spending-wallet.mjs",
     "e2e:worker-selfhost": "node scripts/e2e-worker-selfhost.mjs",
-    "selfhost:setup": "node scripts/selfhost-setup.mjs"
+    "selfhost:setup": "node scripts/selfhost-setup.mjs",
+    "e2e:quick-wallet": "npm run build && node scripts/e2e-quick-wallet-tn10.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

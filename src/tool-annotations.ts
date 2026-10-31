@@ -31,6 +31,7 @@ export const TOOL_ANNOTATIONS: Record<string, KaspaToolAnnotations> = {
   l1_derive_p2sh: { title: "Derive L1 P2SH address", readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   l1_prepare_fund: { title: "Prepare L1 fund (unsigned)", readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   l1_prepare_spend: { title: "Prepare L1 spend (unsigned)", readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  l1_prepare_send: { title: "Prepare L1 send (unsigned)", readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   spending_wallet_create: { title: "Create spending wallet", readOnlyHint: false, destructiveHint: true, openWorldHint: true },
   spending_wallet_status: { title: "Spending wallet status", readOnlyHint: true, destructiveHint: false, openWorldHint: true },
   spending_wallet_withdraw_all: { title: "Withdraw spending wallet", readOnlyHint: false, destructiveHint: true, openWorldHint: true },

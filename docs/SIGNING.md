@@ -65,3 +65,9 @@ TipJar owner withdraw is one KasWare approval after opening the tap link (Approv
 - End-to-end Approve on phone (KasWare mobile / in-app browser) for TN10 fund.
 - Kastle path on a device with Kastle installed.
 - Mainnet Approve (optional, after he’s happy with TN10) — prepare-only connector; he signs in wallet.
+
+
+## Quick-start wallet
+Browser-generated key (kaspa-wasm) encrypted in IndexedDB with WebAuthn PRF or PIN.
+Signs fund/spend/send on `/sign` as an alternative to extensions. See [QUICKSTART_WALLET.md](./QUICKSTART_WALLET.md).
+Server remains keyless — sessions never include private keys.

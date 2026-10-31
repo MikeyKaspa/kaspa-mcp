@@ -61,7 +61,7 @@ export async function attachTapToApprove(
     id: session.id,
     url: `${base}/sign/${session.id}`,
     expiresAt: new Date(session.expiresAt).toISOString(),
-    note: `Tap to approve in KasWare / Kastle (L1) or your EVM wallet. Link expires in ${SIGN_TTL_SEC / 60} minutes. Page never sees keys.`,
+    note: `Tap to approve with Quick-start wallet (Face ID/PIN) or KasWare / Kastle / Kaspire (L1) or your EVM wallet. Link expires in ${SIGN_TTL_SEC / 60} minutes. Page never sees keys.`,
   };
 }
 

@@ -1,6 +1,7 @@
 import type { SignStore } from "./store.js";
 import { signPageHtml, signCsp, SIGN_CSS, SIGN_APP_JS } from "./page.js";
 import { summarizeL1SafeJson, summarizeEvmPrepared, explorerFor } from "./summary.js";
+import { renderSVG } from "uqr";
 
 export async function handleSignHttp(
   request: Request,
@@ -52,7 +53,7 @@ export async function handleSignHttp(
     // Strip nothing sensitive — sessions never hold keys. Still omit huge redundancy.
     let summary;
     try {
-      if (session.kind === "l1-fund" || session.kind === "l1-spend") {
+      if (session.kind === "l1-fund" || session.kind === "l1-spend" || session.kind === "l1-send") {
         const json = session.signedSafeJson || session.safeJson;
         if (json) {
           summary = summarizeL1SafeJson(json, {
@@ -64,7 +65,11 @@ export async function handleSignHttp(
           // Provisional — page rebuilds summary from the tx it constructs
           summary = {
             title:
-              (session.kind === "l1-fund" ? "Fund covenant on " : "Spend covenant on ") +
+              (session.kind === "l1-fund"
+                ? "Fund covenant on "
+                : session.kind === "l1-send"
+                  ? "Send KAS on "
+                  : "Spend covenant on ") +
               session.networkLabel,
             lines: [
               { label: "Network", value: session.networkLabel },
@@ -158,6 +163,26 @@ export async function handleSignHttp(
     });
   }
 
+
+
+  if (pathname === "/api/qr.svg" && request.method === "GET") {
+    const data = (url.searchParams.get("data") || "").trim();
+    if (!data || data.length > 200) {
+      return new Response("bad request", { status: 400 });
+    }
+    // Only allow Kaspa addresses / short URLs — no arbitrary open redirect payloads
+    if (!/^(kaspa:|kaspatest:|https:\/\/)/i.test(data)) {
+      return new Response("unsupported qr payload", { status: 400 });
+    }
+    const svg = renderSVG(data, { ecc: "M", border: 2 });
+    return new Response(svg, {
+      headers: {
+        "Content-Type": "image/svg+xml; charset=utf-8",
+        "Cache-Control": "public, max-age=3600",
+        "Content-Security-Policy": "default-src 'none'",
+      },
+    });
+  }
 
   return null;
 }

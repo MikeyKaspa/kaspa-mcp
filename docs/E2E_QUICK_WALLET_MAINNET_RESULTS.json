@@ -1,0 +1,46 @@
+{
+  "at": "2026-10-31T23:05:15.587Z",
+  "network": "mainnet",
+  "ok": true,
+  "qwAddress": "kaspa:qrv4tfffm4yvy9jceyjgew3wlzv0px4xlagefet63zvjfmkxrqqkzca20fu8f",
+  "deployAddress": "kaspa:qz500cq7h90xd0h26ltqtka2eh54fqcntmh3563vz439z07k0f96xac3cae2l",
+  "startingDeployKas": 3.000769,
+  "endingDeployKas": 0.485769,
+  "totalSpentFromDeployKasApprox": 2.515,
+  "steps": [
+    {
+      "step": "fund_qw",
+      "txid": "c5272777cd64015859bc2815514010f6dc8a89d5f010155de8d48cdcede4fb29",
+      "explorer": "https://explorer.kaspa.org/txs/c5272777cd64015859bc2815514010f6dc8a89d5f010155de8d48cdcede4fb29"
+    },
+    {
+      "step": "return_to_deploy",
+      "txid": "3f387f8b96de1b6c0df41e3380f40b40580205eb10950fcac9764c12a61b585e",
+      "explorer": "https://explorer.kaspa.org/txs/3f387f8b96de1b6c0df41e3380f40b40580205eb10950fcac9764c12a61b585e",
+      "via": "node-pure-signer (browser sendMax hit storage mass on this UTXO)"
+    },
+    {
+      "step": "prior_tipjar_deploy",
+      "txid": "b9eb0bd19107b5861b56a212f3588d7e2ecfa02b82bd971e84d3ba0d3bc67c58",
+      "explorer": "https://explorer.kaspa.org/txs/b9eb0bd19107b5861b56a212f3588d7e2ecfa02b82bd971e84d3ba0d3bc67c58"
+    },
+    {
+      "step": "prior_tip",
+      "txid": "5d9c79dadc14e55dcd883194233134ba465ae5c97edf55a9233f5e3e0d5de6d1",
+      "explorer": "https://explorer.kaspa.org/txs/5d9c79dadc14e55dcd883194233134ba465ae5c97edf55a9233f5e3e0d5de6d1"
+    },
+    {
+      "step": "prior_withdraw",
+      "txid": "2f4a44d784c435b6ace6c84b769a76547dad87729d5c8013ea1152d7ed9d016c",
+      "explorer": "https://explorer.kaspa.org/txs/2f4a44d784c435b6ace6c84b769a76547dad87729d5c8013ea1152d7ed9d016c"
+    }
+  ],
+  "notes": [
+    "TN10 full Quick-start cycle (create→fund→tipjar→tip→withdraw→send) passed — see E2E_QUICK_WALLET_TN10_RESULTS.json",
+    "Mainnet: Quick-start signed tipjar fund+tip+withdraw via browser (REST broadcast fallback). Separate 0.3 KAS QW UTXO hit wasm createTransactions storage-mass on sendMax; returned via Node pure signer with same key.",
+    "Stranded from early wRPC-timeout attempts (before REST fallback): ~1.5 KAS at kaspa:qr4vq6p7z0r3f7svna003ge760cedjyh9qmv4uyaknculu32602c7k5ealg37 and ~1.0 KAS tipjar/QW leftovers from run ending at withdraw 2f4a44d7… (key not retained)."
+  ],
+  "strandedUnreachableKasApprox": 2.5,
+  "capKas": 5,
+  "underCap": true
+}
