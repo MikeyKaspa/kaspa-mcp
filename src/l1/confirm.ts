@@ -2,7 +2,7 @@
  * Reliable L1 transaction confirmation via public REST (kaspa.stream-compatible APIs).
  * Handles submit races where the API returns reject/orphan but the tx still lands.
  */
-import { apiBase } from "./pure/tx.js";
+import { fetchRest } from "../endpoints.js";
 
 export type ConfirmNetworkId = "testnet-10" | "mainnet";
 
@@ -68,7 +68,7 @@ export async function confirmTransaction(
   const sleep = opts.sleep ?? defaultSleep;
   const timeoutMs = opts.timeoutMs ?? defaultTimeout(networkId);
   const intervalMs = opts.intervalMs ?? DEFAULT_INTERVAL;
-  const url = `${apiBase(networkId)}/transactions/${id}`;
+  const path = `/transactions/${id}`;
   const explorer = explorerTxUrl(networkId, id);
   const started = now();
   let attempts = 0;
@@ -77,7 +77,13 @@ export async function confirmTransaction(
   while (now() - started < timeoutMs) {
     attempts += 1;
     try {
-      const res = await fetchImpl(url);
+      let res: Response;
+      if (opts.fetchImpl) {
+        res = await opts.fetchImpl(`https://api-tn10.kaspa.org${path}`); // tests inject fetchImpl
+      } else {
+        const got = await fetchRest(networkId, path, { allowStatuses: [404] });
+        res = got.res;
+      }
       if (res.status === 404) {
         lastDetail = "Transaction not found (indexer lag or missing)";
       } else if (!res.ok) {
@@ -117,7 +123,9 @@ export async function confirmTransaction(
   // Final probe
   attempts += 1;
   try {
-    const res = await fetchImpl(url);
+    const res = opts.fetchImpl
+      ? await opts.fetchImpl(`https://api-tn10.kaspa.org${path}`)
+      : (await fetchRest(networkId, path, { allowStatuses: [404] })).res;
     if (res.ok) {
       const json = (await res.json()) as {
         is_accepted?: boolean;

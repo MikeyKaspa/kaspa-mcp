@@ -5,12 +5,18 @@ import {
   resolveNetwork,
   setSessionNetworkChoice,
   getSessionNetworkPreference,
+  hydrateSessionNetworkPreference,
   MCP_NETWORK_INSTRUCTIONS,
   ASK_NETWORK_PROMPT,
   type NetworkChoice,
 } from "./session-network.js";
 import { runSelfHostGuide } from "./self-host.js";
 import { confirmTransaction, explorerTxUrl } from "./l1/confirm.js";
+import { estimateFees } from "./l1/fee.js";
+import { setNodeConfig, getNodeConfig, defaultRestBases, applyNodeConfigFromEnv } from "./endpoints.js";
+import { createContractPage } from "./contract-page.js";
+import { privateKeyToXonly } from "./l1/pure/sign.js";
+import { bytesToHex } from "./l1/script.js";
 import { backendFor } from "./backends/registry.js";
 import { compileSolidityAsync } from "./backends/compile.js";
 import { SAFETY_BANNER, SafetyError, normalizeTestnetPrivateKey, redactSecrets } from "./safety.js";
@@ -1249,6 +1255,16 @@ export function createKaspaMcpServer(): McpServer {
           priorityFeeSompi: a.priorityFeeSompi != null ? BigInt(a.priorityFeeSompi) : undefined,
           templateId: "tipjar",
         });
+        const page = await createContractPage({
+          networkId: network.id,
+          templateId: "tipjar",
+          contractName: loaded.contractName,
+          p2shAddress: funded.p2shAddress,
+          fundTxid: funded.txid,
+          explorer: funded.explorer,
+          title: "TipJar",
+          blurb: "Anyone can tip this address. The owner can withdraw with their key.",
+        });
         return ok({
           safety: SAFETY_BANNER,
           warning: L1_UNAUDITED_WARNING,
@@ -1259,7 +1275,8 @@ export function createKaspaMcpServer(): McpServer {
           contractName: loaded.contractName,
           bytecodeHex: loaded.bytecodeHex,
           ...funded,
-          next: "Wait for P2SH UTXO, then l1_prepare_spend autoSignBroadcast entry withdraw (args [null,null]) to spending address or mainAddress. Or spending_wallet_withdraw_all.",
+          sharePage: { url: page.url, id: page.record.id },
+          next: "Share sharePage.url. Wait for P2SH UTXO, then l1_prepare_spend autoSignBroadcast entry withdraw (args [null,null]) to spending address or mainAddress. Or spending_wallet_withdraw_all.",
         });
       } catch (e) {
         return err(e);
@@ -1280,7 +1297,7 @@ export function createKaspaMcpServer(): McpServer {
     },
     async ({ choice }) => {
       try {
-        const pref = setSessionNetworkChoice(choice as NetworkChoice);
+        const pref = await setSessionNetworkChoice(choice as NetworkChoice);
         return ok({
           safety: SAFETY_BANNER,
           remembered: true,
@@ -1337,7 +1354,7 @@ export function createKaspaMcpServer(): McpServer {
         "Copy-paste commands in code blocks. Shared demo stays keyless — secrets only on the user's copy.",
       inputSchema: {
         step: z
-          .enum(["start", "deploy", "create_wallet", "set_secret", "fund", "verify", "connect", "status"])
+          .enum(["start", "deploy", "create_wallet", "set_secret", "fund", "verify", "connect", "status", "own_node"])
           .optional()
           .describe("Wizard step (default start)"),
         platform: z.enum(["cloudflare", "local"]).optional(),
@@ -1390,6 +1407,276 @@ export function createKaspaMcpServer(): McpServer {
           ...(netId === "mainnet" ? { mainnetWarning: L1_UNAUDITED_WARNING } : {}),
           ...conf,
           explorer: conf.explorer || explorerTxUrl(netId, conf.txid),
+        });
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+
+
+  server.registerTool(
+    "estimate_fee",
+    {
+      description: "Live L1 fee/mass estimate from REST /info/fee-estimate (failover across configured nodes).",
+      inputSchema: {
+        network: z.enum(["kaspa-l1-testnet-10", "kaspa-l1-mainnet", "testnet-10", "mainnet"]).optional(),
+      },
+    },
+    async (a) => {
+      try {
+        let netId: "testnet-10" | "mainnet" = "testnet-10";
+        if (a.network === "kaspa-l1-mainnet" || a.network === "mainnet") netId = "mainnet";
+        else if (a.network === "kaspa-l1-testnet-10" || a.network === "testnet-10") netId = "testnet-10";
+        else {
+          const resolved = resolveNetwork({ kind: "l1", allowSafeFallback: true });
+          if (resolved.ok) netId = resolved.network.isTestnet ? "testnet-10" : "mainnet";
+        }
+        const est = await estimateFees(netId);
+        return ok({
+          safety: SAFETY_BANNER,
+          ...(netId === "mainnet" ? { mainnetWarning: L1_UNAUDITED_WARNING } : {}),
+          ...est,
+        });
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "configure_node",
+    {
+      description:
+        "SELF-HOST: set your own REST (and optional wRPC) so UTXO/submit do not depend on a single public API. " +
+        "Pass restBases like https://your-vps:8000. Public community APIs remain as failover unless you omit them by only listing yours and accepting outages when yours is down.",
+      inputSchema: {
+        restBases: z.array(z.string()).optional().describe("REST bases, tried first"),
+        wrpcUrl: z.string().optional().describe("Optional wss:// your rusty-kaspa node"),
+        reset: z.boolean().optional().describe("Clear custom config"),
+      },
+    },
+    async (a) => {
+      try {
+        if (isSharedPublicDemo()) {
+          throw new SafetyError(
+            "configure_node refused on shared demo. Self-host, then set KASPA_REST_URLS or call configure_node on YOUR Worker.",
+          );
+        }
+        if (a.reset) {
+          setNodeConfig({});
+          applyNodeConfigFromEnv();
+        } else {
+          setNodeConfig({ restBases: a.restBases, wrpcUrl: a.wrpcUrl });
+        }
+        return ok({
+          safety: SAFETY_BANNER,
+          configured: getNodeConfig(),
+          defaults: defaultRestBases(),
+          hint:
+            "Run your own indexer REST (kaspa-ng/kaspa-rest-server) + rusty-kaspa for mainnet independence. " +
+            "Env: KASPA_REST_URLS=https://you:8000 KASPA_RPC_URL=wss://you:17110",
+        });
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "create_contract_page",
+    {
+      description:
+        "Create a one-tap simple share page for a P2SH contract (address + blurb + copy button). Returns /page/<id> URL.",
+      inputSchema: {
+        p2shAddress: z.string(),
+        network: z.string().optional(),
+        templateId: z.string().optional(),
+        contractName: z.string().optional(),
+        fundTxid: z.string().optional(),
+        explorer: z.string().optional(),
+        title: z.string().optional(),
+        blurb: z.string().optional(),
+      },
+    },
+    async (a) => {
+      try {
+        const resolved = resolveNetwork({ explicit: a.network, kind: "l1", allowSafeFallback: true });
+        if (!resolved.ok) return ok({ safety: SAFETY_BANNER, ...resolved });
+        const page = await createContractPage({
+          networkId: resolved.network.id,
+          templateId: a.templateId,
+          contractName: a.contractName,
+          p2shAddress: a.p2shAddress,
+          fundTxid: a.fundTxid,
+          explorer: a.explorer,
+          title: a.title,
+          blurb: a.blurb,
+        });
+        return ok({ safety: SAFETY_BANNER, sharePage: { url: page.url, id: page.record.id }, record: page.record });
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "l1_vault_chat_deploy",
+    {
+      description:
+        "SELF-HOST ONLY. Chat-deploy TimeoutVault with spending wallet as sender (and optional recipient x-only). " +
+        "Worker path rebinds bundled artifact (byte-identical to silverc). No popup.",
+      inputSchema: {
+        network: z.string().optional(),
+        amountSompi: z.union([z.string(), z.number()]).default("100000000"),
+        recipientXonlyHex: z
+          .string()
+          .optional()
+          .describe("32-byte x-only recipient pubkey hex; default = spending wallet (self-vault)"),
+        priorityFeeSompi: z.union([z.string(), z.number()]).optional(),
+      },
+    },
+    async (a) => {
+      try {
+        if (isSharedPublicDemo()) throw new SafetyError("l1_vault_chat_deploy refused on shared demo — self-host");
+        const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
+        const ask = needNetworkChoicePayload(resolved);
+        if (ask) return ask;
+        if (!resolved.ok) return err("network resolve failed");
+        const network = resolved.network;
+        const key = assertCanAutoSign(network);
+        const senderX = bytesToHex(privateKeyToXonly(key.hex));
+        const recipientX = (a.recipientXonlyHex || senderX).replace(/^0x/, "").toLowerCase();
+        const vault = getTemplate("timeout_vault");
+        let loaded;
+        if (isSilvercAvailable()) {
+          loaded = compileSilverscript({
+            source: vault.source,
+            constructorArgs: [
+              { kind: "bytes", value: Array.from(Buffer.from(senderX, "hex")) },
+              { kind: "bytes", value: Array.from(Buffer.from(recipientX, "hex")) },
+              { kind: "int", value: 4_000_000_000_000 },
+            ],
+          });
+        } else {
+          const { rebindTimeoutVaultKeys } = await import("./l1/artifact.js");
+          loaded = rebindTimeoutVaultKeys(vault.loadedExample, {
+            senderXonlyHex: senderX,
+            recipientXonlyHex: recipientX,
+          });
+        }
+        const funded = await autoFundCovenant({
+          network,
+          bytecode: loaded.bytecode,
+          amountSompi: BigInt(a.amountSompi),
+          priorityFeeSompi: a.priorityFeeSompi != null ? BigInt(a.priorityFeeSompi) : undefined,
+          templateId: "timeout_vault",
+        });
+        const page = await createContractPage({
+          networkId: network.id,
+          templateId: "timeout_vault",
+          contractName: loaded.contractName,
+          p2shAddress: funded.p2shAddress,
+          fundTxid: funded.txid,
+          explorer: funded.explorer,
+          title: "TimeoutVault",
+          blurb: "Recipient can claim anytime; sender reclaims after timeout.",
+        });
+        return ok({
+          safety: SAFETY_BANNER,
+          warning: L1_UNAUDITED_WARNING,
+          mode: "spending_wallet_vault_deploy",
+          senderXonlyHex: senderX,
+          recipientXonlyHex: recipientX,
+          artifact: loaded.artifact,
+          contractName: loaded.contractName,
+          bytecodeHex: loaded.bytecodeHex,
+          ...funded,
+          sharePage: { url: page.url, id: page.record.id },
+          next: "Recipient: l1_prepare_spend entry transfer. Sender after timeout: entry timeout.",
+        });
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "l1_escrow_chat_deploy",
+    {
+      description:
+        "SELF-HOST ONLY. Chat-deploy Escrow with spending wallet as arbiter. Buyer/seller x-only pubkeys required. " +
+        "Worker rebind is byte-identical to silverc. No popup.",
+      inputSchema: {
+        network: z.string().optional(),
+        amountSompi: z.union([z.string(), z.number()]).default("100000000"),
+        buyerXonlyHex: z.string().describe("Buyer 32-byte x-only pubkey hex"),
+        sellerXonlyHex: z.string().describe("Seller 32-byte x-only pubkey hex"),
+        priorityFeeSompi: z.union([z.string(), z.number()]).optional(),
+      },
+    },
+    async (a) => {
+      try {
+        if (isSharedPublicDemo()) throw new SafetyError("l1_escrow_chat_deploy refused on shared demo — self-host");
+        const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
+        const ask = needNetworkChoicePayload(resolved);
+        if (ask) return ask;
+        if (!resolved.ok) return err("network resolve failed");
+        const network = resolved.network;
+        const key = assertCanAutoSign(network);
+        const arbiterPkh = await ownerPkhHex(key.hex);
+        const buyer = a.buyerXonlyHex.replace(/^0x/, "").toLowerCase();
+        const seller = a.sellerXonlyHex.replace(/^0x/, "").toLowerCase();
+        const esc = getTemplate("escrow");
+        let loaded;
+        if (isSilvercAvailable()) {
+          loaded = compileSilverscript({
+            source: esc.source,
+            constructorArgs: [
+              { kind: "bytes", value: Array.from(Buffer.from(arbiterPkh, "hex")) },
+              { kind: "bytes", value: Array.from(Buffer.from(buyer, "hex")) },
+              { kind: "bytes", value: Array.from(Buffer.from(seller, "hex")) },
+            ],
+          });
+        } else {
+          const { rebindEscrowParties } = await import("./l1/artifact.js");
+          loaded = rebindEscrowParties(esc.loadedExample, {
+            arbiterPkhHex: arbiterPkh,
+            buyerXonlyHex: buyer,
+            sellerXonlyHex: seller,
+          });
+        }
+        const funded = await autoFundCovenant({
+          network,
+          bytecode: loaded.bytecode,
+          amountSompi: BigInt(a.amountSompi),
+          priorityFeeSompi: a.priorityFeeSompi != null ? BigInt(a.priorityFeeSompi) : undefined,
+          templateId: "escrow",
+        });
+        const page = await createContractPage({
+          networkId: network.id,
+          templateId: "escrow",
+          contractName: loaded.contractName,
+          p2shAddress: funded.p2shAddress,
+          fundTxid: funded.txid,
+          explorer: funded.explorer,
+          title: "Escrow",
+          blurb: "Arbiter can release funds to buyer or seller.",
+        });
+        return ok({
+          safety: SAFETY_BANNER,
+          warning: L1_UNAUDITED_WARNING,
+          mode: "spending_wallet_escrow_deploy",
+          arbiterPkhHex: arbiterPkh,
+          buyerXonlyHex: buyer,
+          sellerXonlyHex: seller,
+          artifact: loaded.artifact,
+          contractName: loaded.contractName,
+          bytecodeHex: loaded.bytecodeHex,
+          ...funded,
+          sharePage: { url: page.url, id: page.record.id },
+          next: "Arbiter spends with entry spend; fee must match script minerFee (300000 sompi).",
         });
       } catch (e) {
         return err(e);

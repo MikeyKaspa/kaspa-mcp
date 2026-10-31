@@ -20,4 +20,4 @@ id = "253c96421f8b44fdb0c10fc0e46af206"
 [assets]
 directory = "./public"
 binding = "ASSETS"
-run_worker_first = ["/mcp", "/mcp/*", "/api/*", "/health", "/sign", "/sign/*", "!/sign/app.js", "!/sign/app.css", "!/sign/l1-build.js"]
+run_worker_first = ["/mcp", "/mcp/*", "/api/*", "/health", "/sign", "/sign/*", "/page", "/page/*", "!/sign/app.js", "!/sign/app.css", "!/sign/l1-build.js"]

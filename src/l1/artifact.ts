@@ -151,3 +151,112 @@ export function rebindTipjarOwnerPkh(
     entries: contract.entries,
   };
 }
+
+/** Demo x-only pubkey = secp256k1 G (privkey 0x01). Used by vault/escrow bundled artifacts. */
+export const DEMO_XONLY_PUB_HEX =
+  "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+
+/** Demo timeout temporal embedded in TimeoutVault example (ms-ish units silverc uses). */
+export const VAULT_DEMO_TIMEOUT = 4_000_000_000_000;
+
+function replaceAllOccurrences(src: Uint8Array, from: Uint8Array, to: Uint8Array): Uint8Array {
+  if (from.length !== to.length) throw new Error("replace length mismatch");
+  const out = new Uint8Array(src);
+  for (let i = 0; i <= out.length - from.length; i++) {
+    let ok = true;
+    for (let j = 0; j < from.length; j++) {
+      if (out[i + j] !== from[j]) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) out.set(to, i);
+  }
+  return out;
+}
+
+function replaceNthOccurrence(
+  src: Uint8Array,
+  from: Uint8Array,
+  to: Uint8Array,
+  nth: number,
+): Uint8Array {
+  if (from.length !== to.length) throw new Error("replace length mismatch");
+  const out = new Uint8Array(src);
+  let seen = 0;
+  for (let i = 0; i <= out.length - from.length; i++) {
+    let ok = true;
+    for (let j = 0; j < from.length; j++) {
+      if (out[i + j] !== from[j]) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) {
+      if (seen === nth) {
+        out.set(to, i);
+        return out;
+      }
+      seen += 1;
+    }
+  }
+  throw new Error(`occurrence ${nth} of demo bytes not found`);
+}
+
+function cloneWithBytecode(loaded: LoadedArtifact, bytecode: Uint8Array): LoadedArtifact {
+  const artifact: SilAbiArtifact = structuredClone(loaded.artifact);
+  const contract = artifact.contracts[loaded.contractName]!;
+  contract.compiled = { ...contract.compiled, bytecode: Array.from(bytecode) };
+  return {
+    artifact,
+    contractName: loaded.contractName,
+    contract,
+    bytecode,
+    bytecodeHex: bytesToHex(bytecode),
+    templateHashHex: loaded.templateHashHex,
+    entries: contract.entries,
+  };
+}
+
+function assertHex32(hex: string, label: string): string {
+  const h = hex.replace(/^0x/, "").toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(h)) throw new Error(`${label} must be 32-byte hex`);
+  return h;
+}
+
+/**
+ * Rebind TimeoutVault demo bytecode: recipient (1st x-only), sender (2nd x-only).
+ * Byte-identical to silverc --constructor-args for same pubkeys + demo timeout.
+ * Order verified against silverc v1.0.0 (recipient @ first demo x-only, sender @ second).
+ */
+export function rebindTimeoutVaultKeys(
+  loaded: LoadedArtifact,
+  opts: { senderXonlyHex: string; recipientXonlyHex: string },
+): LoadedArtifact {
+  const sender = hexToBytes(assertHex32(opts.senderXonlyHex, "senderXonlyHex"));
+  const recipient = hexToBytes(assertHex32(opts.recipientXonlyHex, "recipientXonlyHex"));
+  const demo = hexToBytes(DEMO_XONLY_PUB_HEX);
+  // First occurrence = recipient, second = sender (silverc layout).
+  let bc = replaceNthOccurrence(loaded.bytecode, demo, recipient, 0);
+  bc = replaceNthOccurrence(bc, demo, sender, 0); // after first replace, remaining demo is sender slot
+  return cloneWithBytecode(loaded, bc);
+}
+
+/**
+ * Rebind Escrow demo: arbiter (pkh), buyer (x-only), seller (x-only).
+ * Byte-identical to silverc for the same constructor args.
+ */
+export function rebindEscrowParties(
+  loaded: LoadedArtifact,
+  opts: { arbiterPkhHex: string; buyerXonlyHex: string; sellerXonlyHex: string },
+): LoadedArtifact {
+  const arbiter = hexToBytes(assertHex32(opts.arbiterPkhHex, "arbiterPkhHex"));
+  const buyer = hexToBytes(assertHex32(opts.buyerXonlyHex, "buyerXonlyHex"));
+  const seller = hexToBytes(assertHex32(opts.sellerXonlyHex, "sellerXonlyHex"));
+  const demoPkh = hexToBytes(TIPJAR_DEMO_OWNER_PKH_HEX);
+  const demoX = hexToBytes(DEMO_XONLY_PUB_HEX);
+  let bc = replaceAllOccurrences(loaded.bytecode, demoPkh, arbiter);
+  bc = replaceNthOccurrence(bc, demoX, buyer, 0);
+  bc = replaceNthOccurrence(bc, demoX, seller, 0);
+  return cloneWithBytecode(loaded, bc);
+}

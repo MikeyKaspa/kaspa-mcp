@@ -17,7 +17,7 @@ MIT · Non-custodial · Designed for **$0** (public RPCs + free testnet faucets)
 
 ## Network choice
 
-Before build/deploy, the connector asks **Testnet or mainnet?** (`choose_network`). Testnet is the safe default. Mainnet shows an UNAUDITED warning. Guided self-host: `self_host` tool.
+Before build/deploy, the connector asks **Testnet or mainnet?** (`choose_network`, persisted in KV). Testnet is the safe default. Mainnet shows an UNAUDITED warning. Guided self-host: `self_host` (includes `own_node` for your REST). Live fees: `estimate_fee`. Chat-deploy: TipJar / TimeoutVault / Escrow. Share: `/page/<id>`.
 
 ## Spending wallet (chat-deploy, any phone)
 

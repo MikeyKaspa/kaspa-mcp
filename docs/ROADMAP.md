@@ -26,10 +26,14 @@ on upstream / hardware. Agents should keep proposing these without waiting to be
 
 ## Shipped recently
 
-- `self_host` guided wizard
-- `l1_confirm_tx` + submit-path polling (reject-but-landed races)
-- `choose_network` / session preference — ask Testnet or mainnet? before build/deploy
-- `l1_blockdag_info` default fixed to TN10 (was mainnet)
+- `self_host` guided wizard (+ `own_node` for user REST/wRPC)
+- `l1_confirm_tx` + submit confirm polling
+- `choose_network` persisted in KV across Worker isolates
+- Live `estimate_fee` + multi-REST failover / `configure_node`
+- TipJar **and** TimeoutVault / Escrow Worker rebind (byte-identical to silverc)
+- Plain-English multi-chunk `withdraw_all`
+- One-tap `/page/<id>` contract share pages
+- Research: no official silverc WASM for Workers — see docs/SILVERSCRIPT_COMPILE_ON_WORKERS.md
 
 ## Other UX gaps (proactive)
 

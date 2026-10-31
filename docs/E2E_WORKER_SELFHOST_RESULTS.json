@@ -31,63 +31,60 @@
     },
     {
       "step": "fund_spending_wallet",
-      "skipped": true,
-      "balanceSompi": "399500000"
+      "txid": "e59686027b4d9f0ee7145c848d58fe8a7b65cc1269be6455df3c1e755f8a0522",
+      "amountSompi": "500000000"
     },
     {
       "step": "rest_utxo_ready",
-      "balanceSompi": "399500000"
+      "balanceSompi": "500000000"
     },
     {
       "step": "tipjar_chat_deploy",
-      "txid": "c7e5c1f6e69be5197ec0580d824b9a64c16c39562672d0a2f2e31f1f0ab40cc2",
+      "txid": "5f598c420bdca73bbe0a784cf24d7377f51ed6d34b516c88049b64ad6e614940",
       "p2shAddress": "kaspatest:ppqj4hymws848k5paaqdd36lmvqfn7fvmuhxh8xdrqcxknwu2hwk5tezyn9wl",
-      "explorer": "https://tn10.kaspa.stream/transactions/c7e5c1f6e69be5197ec0580d824b9a64c16c39562672d0a2f2e31f1f0ab40cc2"
+      "explorer": "https://tn10.kaspa.stream/transactions/5f598c420bdca73bbe0a784cf24d7377f51ed6d34b516c88049b64ad6e614940",
+      "sharePage": "https://kaspa-mcp-selfhost.kaspa-mcp.workers.dev/page/959de576934eb7f78cbe80ae2e688079"
     },
     {
-      "step": "fund_timeout_vault",
-      "txid": "b7fcacb284e3c7b3152e61fb4f8e56da87d366ff16548995359e8996769cb58c",
-      "p2shAddress": "kaspatest:pzw2pu32alulge2gv0phjpavgyjlc9plj2vm94lf8vyav3jl9madu3x9qadk5",
-      "explorer": "https://tn10.kaspa.stream/transactions/b7fcacb284e3c7b3152e61fb4f8e56da87d366ff16548995359e8996769cb58c"
+      "step": "vault_chat_deploy",
+      "txid": "17a3975b5546913b6a2e526ab9dc44d8ba2c6fc68a71d4ad1e79139d0acd22b0",
+      "p2shAddress": "kaspatest:pp2v8mypchhmr6qpsrlpp272v75ms8f70zth5ewgjfgjawyzcgewxyv5jpmgn",
+      "explorer": "https://tn10.kaspa.stream/transactions/17a3975b5546913b6a2e526ab9dc44d8ba2c6fc68a71d4ad1e79139d0acd22b0",
+      "sharePage": "https://kaspa-mcp-selfhost.kaspa-mcp.workers.dev/page/d0bf779a8f72a77cc4734154c3bc1f80"
     },
     {
-      "step": "fund_escrow",
-      "txid": "4e948a70f16c33663af7df2b345f96306afcdc5de9e9fc31e0c57b0faaa36cf5",
-      "p2shAddress": "kaspatest:pq7efuqrnlk38q94jlrv4qqxhscuul500h7x73yfgzk5vcw2t6ytz09us4frv",
-      "explorer": "https://tn10.kaspa.stream/transactions/4e948a70f16c33663af7df2b345f96306afcdc5de9e9fc31e0c57b0faaa36cf5"
+      "step": "escrow_chat_deploy",
+      "txid": "57e6f764bdc7de2e7e04549041ef40c0beea98386da41b335b913e35097b0a68",
+      "p2shAddress": "kaspatest:prw86y6f86sw8vwmlfj3wthe8pn5ycmk28vv76atk2ex2xmf6pmt5yavyremj",
+      "explorer": "https://tn10.kaspa.stream/transactions/57e6f764bdc7de2e7e04549041ef40c0beea98386da41b335b913e35097b0a68",
+      "sharePage": "https://kaspa-mcp-selfhost.kaspa-mcp.workers.dev/page/7095a733bb48c9bf0c38a62b71bef8d3"
+    },
+    {
+      "step": "estimate_fee",
+      "feerate": 100,
+      "recommended": "203600",
+      "sourceBase": "https://api-tn10.kaspa.org"
     },
     {
       "step": "tipjar_withdraw",
-      "txid": "73fbb3b89d5ae05ae0eff4013a0d62681d3f98df7fa4d10c85cde427bb48c4e4",
-      "explorer": "https://tn10.kaspa.stream/transactions/73fbb3b89d5ae05ae0eff4013a0d62681d3f98df7fa4d10c85cde427bb48c4e4"
+      "txid": "b0f20da6ce80c9f9eb0e12a42048f6273701a411749dac173f5a3dff55cf2a4c",
+      "explorer": "https://tn10.kaspa.stream/transactions/b0f20da6ce80c9f9eb0e12a42048f6273701a411749dac173f5a3dff55cf2a4c"
     },
     {
       "step": "withdraw_all",
-      "txid": "e1423d01220c120dadda339b7e441487eec5b12610c492e8dc910bb9a90d79e7",
+      "txid": "209f7e1560bfc11ac156354adb3fb40728d0d7012fd7943b34db2b3c81ceff57",
       "txids": [
-        "c7444174dc85059af0aee0826622c0367887c8a0541f8aad61f8924a28140e3e",
-        "c7444174dc85059af0aee0826622c0367887c8a0541f8aad61f8924a28140e3e",
-        "c7444174dc85059af0aee0826622c0367887c8a0541f8aad61f8924a28140e3e",
-        "e1423d01220c120dadda339b7e441487eec5b12610c492e8dc910bb9a90d79e7"
+        "8b6317e475c805146f07cdd845f74088a9a28672b4a4a984fb34e0653cef7978",
+        "209f7e1560bfc11ac156354adb3fb40728d0d7012fd7943b34db2b3c81ceff57"
       ],
-      "amountSompi": "200000000",
+      "amountSompi": "100000000",
       "destination": "kaspatest:qza6ey35a278ft60rhvjfna96dznge4qrlw9zgr7zedngjzqvd97u9t9lscq6",
-      "explorer": "https://tn10.kaspa.stream/transactions/e1423d01220c120dadda339b7e441487eec5b12610c492e8dc910bb9a90d79e7"
+      "explorer": "https://tn10.kaspa.stream/transactions/209f7e1560bfc11ac156354adb3fb40728d0d7012fd7943b34db2b3c81ceff57",
+      "explanation": "Your spending wallet had several separate coins (UTXOs). Kaspa charges more when one transaction tries to move too many at once, so we sent them home in 2 smaller transfers \u2014 all only to your locked main address. Total moved: 100000000 sompi.",
+      "chunkCount": 2
     }
   ],
-  "at": "2026-10-31T01:12:39.837Z",
-  "tests": "103/103 vitest",
-  "features": [
-    "self_host guided wizard",
-    "l1_confirm_tx + submit confirm polling",
-    "choose_network session preference (ask Testnet or mainnet?)",
-    "l1_blockdag_info default TN10 (was mainnet)"
-  ],
-  "sharedDemoVerified": {
-    "url": "https://kaspa-mcp.kaspa-mcp.workers.dev",
-    "spendingWallet": false,
-    "askFirst": true,
-    "choose_network": true,
-    "self_host": true
-  }
+  "at": "2026-10-31T01:24:25.008Z",
+  "tests": "113/113 vitest",
+  "commitNote": "persist KV network, fees, vault/escrow rebind, share pages, node failover"
 }

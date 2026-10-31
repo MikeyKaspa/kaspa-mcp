@@ -29,6 +29,7 @@ import {
   type SubmitConfirmMeta,
 } from "./pure/tx.js";
 import { explorerTxUrl } from "./confirm.js";
+import { resolvePriorityFeeSompi } from "./fee.js";
 import { privateKeyToAddress as pureAddr } from "./pure/sign.js";
 
 function networkIdOf(network: NetworkInfo): "testnet-10" | "mainnet" {
@@ -72,12 +73,14 @@ export async function autoFundCovenant(opts: {
     balanceSompi(opts.network, a),
   );
 
+  const priorityFeeSompi =
+    opts.priorityFeeSompi ?? (await resolvePriorityFeeSompi(net, undefined, "fund"));
   const funded = await fundP2sh({
     networkId: net,
     privateKeyHex: key.hex,
     redeemBytecode: opts.bytecode,
     amountSompi: opts.amountSompi,
-    priorityFeeSompi: opts.priorityFeeSompi,
+    priorityFeeSompi,
   });
   await recordCovenant({
     p2shAddress: funded.p2shAddress,
@@ -173,6 +176,8 @@ export async function spendingWalletWithdrawAll(opts: {
   amountSompi: string;
   explorer: string;
   confirmations?: SubmitConfirmMeta[];
+  explanation: string;
+  chunkCount: number;
   mainnetBanner?: string;
 }> {
   const key = assertCanAutoSign(opts.network);
@@ -182,7 +187,7 @@ export async function spendingWalletWithdrawAll(opts: {
   if (!reg?.mainAddress) throw new Error("mainAddress missing from registry");
   assertWithdrawDestination(reg.mainAddress);
 
-  const priorityFee = opts.priorityFeeSompi ?? 500_000n;
+  const priorityFee = opts.priorityFeeSompi ?? (await resolvePriorityFeeSompi(net, undefined, "p2pk"));
   const txids: string[] = [];
   const confirmations: SubmitConfirmMeta[] = [];
   let totalSent = 0n;
@@ -226,6 +231,11 @@ export async function spendingWalletWithdrawAll(opts: {
 
   const last = txids[txids.length - 1]!;
   const explorer = confirmations[confirmations.length - 1]?.explorer ?? explorerTxUrl(net, last);
+  const chunkCount = txids.length;
+  const explanation =
+    chunkCount <= 1
+      ? `Swept the spending wallet to your locked main address in one transaction.`
+      : `Your spending wallet had several separate coins (UTXOs). Kaspa charges more when one transaction tries to move too many at once, so we sent them home in ${chunkCount} smaller transfers — all only to your locked main address. Total moved: ${totalSent} sompi.`;
   return {
     txid: last,
     txids,
@@ -234,6 +244,8 @@ export async function spendingWalletWithdrawAll(opts: {
     amountSompi: totalSent.toString(),
     explorer,
     confirmations,
+    explanation,
+    chunkCount,
     mainnetBanner: opts.network.isTestnet ? undefined : SPENDING_MAINNET_BANNER,
   };
 }

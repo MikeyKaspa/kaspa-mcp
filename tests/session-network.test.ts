@@ -29,8 +29,8 @@ describe("session network preference", () => {
     expect(r.source).toBe("safe_fallback");
   });
 
-  it("remembers testnet choice for L1 and EVM", () => {
-    const pref = setSessionNetworkChoice("testnet");
+  it("remembers testnet choice for L1 and EVM", async () => {
+    const pref = await setSessionNetworkChoice("testnet");
     expect(pref.l1NetworkId).toBe(DEFAULT_L1_TESTNET);
     expect(pref.evmNetworkId).toBe(DEFAULT_EVM_TESTNET);
     expect(getSessionNetworkPreference()?.choice).toBe("testnet");
@@ -42,8 +42,8 @@ describe("session network preference", () => {
     expect(r.mainnetWarning).toBeUndefined();
   });
 
-  it("mainnet choice surfaces unaudited warning", () => {
-    setSessionNetworkChoice("mainnet");
+  it("mainnet choice surfaces unaudited warning", async () => {
+    await setSessionNetworkChoice("mainnet");
     const r = resolveNetwork({ kind: "l1" });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -55,8 +55,8 @@ describe("session network preference", () => {
     expect(evm.network.id).toBe("kasplex-mainnet");
   });
 
-  it("explicit network overrides session", () => {
-    setSessionNetworkChoice("mainnet");
+  it("explicit network overrides session", async () => {
+    await setSessionNetworkChoice("mainnet");
     const r = resolveNetwork({ explicit: DEFAULT_L1_TESTNET, kind: "l1" });
     expect(r.ok).toBe(true);
     if (!r.ok) return;

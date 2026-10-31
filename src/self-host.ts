@@ -15,7 +15,8 @@ export type SelfHostStep =
   | "fund"
   | "verify"
   | "connect"
-  | "status";
+  | "status"
+  | "own_node";
 
 export type SelfHostPlatform = "cloudflare" | "local";
 

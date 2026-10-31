@@ -259,27 +259,55 @@ async function main() {
     txid: tipData.txid,
     p2shAddress: tipData.p2shAddress,
     explorer: tipData.explorer,
+    sharePage: tipData.sharePage?.url,
   });
 
   const tipUtxo = await waitP2shUtxo(tipData.p2shAddress, tipData.txid);
 
-  // Fund all 3 templates (tipjar already funded; fund vault + escrow)
-  for (const templateId of ["timeout_vault", "escrow"]) {
-    const funded = await tool("l1_prepare_fund", {
-      network: "kaspa-l1-testnet-10",
-      templateId,
-      amountSompi: "100000000",
-      autoSignBroadcast: true,
-    });
-    const fd = funded.result ?? funded;
-    assertNoKeyMaterial(fd);
-    results.steps.push({
-      step: `fund_${templateId}`,
-      txid: fd.txid,
-      p2shAddress: fd.p2shAddress,
-      explorer: fd.explorer,
-    });
-  }
+  // Vault + escrow chat-deploy (Worker rebind, no silverc)
+  const vault = await tool("l1_vault_chat_deploy", {
+    network: "kaspa-l1-testnet-10",
+    amountSompi: "100000000",
+  });
+  const vd = vault.result ?? vault;
+  assertNoKeyMaterial(vd);
+  results.steps.push({
+    step: "vault_chat_deploy",
+    txid: vd.txid,
+    p2shAddress: vd.p2shAddress,
+    explorer: vd.explorer,
+    sharePage: vd.sharePage?.url,
+  });
+
+  // Escrow: buyer=seller=spending xonly from tipjar owner path — use demo-compatible from status address derivation is hard;
+  // pass spending wallet's own xonly twice via tipjar owner rebound pattern: use fixed test vectors distinct from demo.
+  const buyer = "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899";
+  const seller = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+  const escrow = await tool("l1_escrow_chat_deploy", {
+    network: "kaspa-l1-testnet-10",
+    amountSompi: "100000000",
+    buyerXonlyHex: buyer,
+    sellerXonlyHex: seller,
+  });
+  const ed = escrow.result ?? escrow;
+  assertNoKeyMaterial(ed);
+  results.steps.push({
+    step: "escrow_chat_deploy",
+    txid: ed.txid,
+    p2shAddress: ed.p2shAddress,
+    explorer: ed.explorer,
+    sharePage: ed.sharePage?.url,
+  });
+
+  // estimate_fee live
+  const fee = await tool("estimate_fee", { network: "kaspa-l1-testnet-10" });
+  const fe = fee.result ?? fee;
+  results.steps.push({
+    step: "estimate_fee",
+    feerate: fe.feerateSompiPerGram,
+    recommended: fe.recommendedPriorityFeeSompi,
+    sourceBase: fe.sourceBase,
+  });
 
   // Withdraw tipjar back to spending address
   const spent = await tool("l1_prepare_spend", {
@@ -312,6 +340,8 @@ async function main() {
     amountSompi: sw.amountSompi,
     destination: sw.destinationAddress,
     explorer: sw.explorer,
+    explanation: sw.explanation,
+    chunkCount: sw.chunkCount,
   });
 
   assertNoKeyMaterial(results);

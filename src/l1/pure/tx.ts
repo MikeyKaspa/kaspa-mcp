@@ -17,6 +17,8 @@ import type { LoadedArtifact } from "../artifact.js";
 import { entryOf } from "../artifact.js";
 import type { PureTx, PureInput, PureOutput } from "./sighash.js";
 import { calcSchnorrSignatureHash } from "./sighash.js";
+import { fetchRest, restBasesFor, type NetworkId as EpNetworkId } from "../../endpoints.js";
+import { resolvePriorityFeeSompi } from "../fee.js";
 
 const NATIVE_SUBNET = new Uint8Array(20);
 const MIN_FUND_SOMPI = 10_000_000n; // 0.1 KAS
@@ -31,12 +33,14 @@ export type RestUtxo = {
 };
 
 export function apiBase(networkId: "testnet-10" | "mainnet"): string {
-  return networkId === "mainnet" ? "https://api.kaspa.org" : "https://api-tn10.kaspa.org";
+  return restBasesFor(networkId)[0]!;
 }
 
 export async function fetchUtxos(networkId: "testnet-10" | "mainnet", address: string): Promise<RestUtxo[]> {
-  const url = `${apiBase(networkId)}/addresses/${encodeURIComponent(address)}/utxos`;
-  const res = await fetch(url);
+  const { res } = await fetchRest(
+    networkId as EpNetworkId,
+    `/addresses/${encodeURIComponent(address)}/utxos`,
+  );
   if (!res.ok) throw new Error(`UTXO fetch HTTP ${res.status}`);
   const data = (await res.json()) as Array<{
     address?: string;
@@ -221,10 +225,11 @@ export async function submitTxRestDetailed(
   let submitError: string | undefined;
   let txid: string | undefined;
   try {
-    const res = await fetch(`${apiBase(networkId)}/transactions`, {
+    const { res } = await fetchRest(networkId as EpNetworkId, "/transactions", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
+      allowStatuses: [400, 409, 422, 500],
     });
     const json = (await res.json()) as { transactionId?: string; error?: string; detail?: string };
     txid = json.transactionId?.toLowerCase();
@@ -338,7 +343,7 @@ export async function buildAndSignPayment(opts: {
   const utxos = await fetchUtxos(opts.networkId, from);
   if (!utxos.length) throw new Error(`No UTXOs at ${from}`);
 
-  const fee = opts.priorityFeeSompi ?? 500_000n; // ≥ TN10 compute-mass minimum for typical 1-in/2-out
+  const fee = opts.priorityFeeSompi ?? (await resolvePriorityFeeSompi(opts.networkId, undefined, "p2pk"));
   const outSum = opts.outputs.reduce((a, o) => a + o.amount, 0n);
   const need = outSum + fee;
   const selected: RestUtxo[] = [];
@@ -403,7 +408,7 @@ export async function spendP2sh(opts: {
   p2shUtxo: RestUtxo;
   feeSompi?: bigint;
 }): Promise<{ txid: string; p2shAddress: string; confirmation: SubmitConfirmMeta }> {
-  const fee = opts.feeSompi ?? 500_000n;
+  const fee = opts.feeSompi ?? (await resolvePriorityFeeSompi(opts.networkId, undefined, "spend"));
   const inAmt = opts.p2shUtxo.amount;
   const outAmt = inAmt - fee;
   if (outAmt <= 0n) throw new Error("fee too high");

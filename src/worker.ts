@@ -19,6 +19,9 @@ import {
   handleSignHttp,
   setSignContext,
 } from "./sign/index.js";
+import { setNetworkPreferenceKv, setNetworkClientKey, hydrateSessionNetworkPreference } from "./session-network.js";
+import { setContractPageContext, getContractPage, renderContractPageHtml } from "./contract-page.js";
+import { applyNodeConfigFromEnv } from "./endpoints.js";
 
 export interface Env extends RateLimitEnv {
   MCP_PUBLIC?: string;
@@ -77,7 +80,18 @@ export default {
       };
       const existing = await env.SIGN_SESSIONS.get("spending-registry");
       if (existing) process.env.KASPA_SPENDING_REGISTRY_JSON = existing;
+      setNetworkPreferenceKv(env.SIGN_SESSIONS);
+      setContractPageContext({ kv: env.SIGN_SESSIONS, publicBaseUrl: url.origin });
+    } else {
+      setNetworkPreferenceKv(null);
+      setContractPageContext({ kv: null, publicBaseUrl: url.origin });
     }
+    applyNodeConfigFromEnv(process.env);
+    // Per-client network preference (demo key or IP)
+    const demoKey = request.headers.get("X-Kaspa-Demo-Key")?.trim();
+    const ck = demoKey || `ip:${clientIp(request)}`;
+    setNetworkClientKey(ck);
+    await hydrateSessionNetworkPreference(ck);
 
     if (request.method === "OPTIONS") {
       return withCors(new Response(null, { status: 204 }));
@@ -97,7 +111,7 @@ export default {
           spendingWallet: Boolean(env.KASPA_SPENDING_PRIVATE_KEY) && env.MCP_PUBLIC !== "true",
           pureJsSigner: true,
           compileHint:
-            "Workers: pure-JS L1 signer for self-host auto-sign (secret on YOUR account). Shared demo is keyless (MCP_PUBLIC). No solc/silverc on Worker — TipJar owner rebind built-in; other templates use bundled artifacts.",
+            "Workers: pure-JS L1 signer for self-host auto-sign (secret on YOUR account). Shared demo is keyless (MCP_PUBLIC). No solc/silverc on Worker — TipJar/Vault/Escrow rebind built-in. Own node: KASPA_REST_URLS.",
         }),
       );
     }
@@ -117,8 +131,20 @@ export default {
       if (signRes) return withCors(signRes);
     }
 
+    if (url.pathname.startsWith("/page/")) {
+      const id = url.pathname.slice("/page/".length).split("/")[0] || "";
+      const rec = await getContractPage(id);
+      if (!rec) return withCors(new Response("Contract page not found or expired", { status: 404 }));
+      return withCors(
+        new Response(renderContractPageHtml(rec), {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60" },
+        }),
+      );
+    }
+
     if (url.pathname !== "/mcp") {
-      return withCors(new Response("Kaspa MCP — POST /mcp · GET /sign/<id>", { status: 404 }));
+      return withCors(new Response("Kaspa MCP — POST /mcp · GET /sign/<id> · GET /page/<id>", { status: 404 }));
     }
 
     const bodyText =
