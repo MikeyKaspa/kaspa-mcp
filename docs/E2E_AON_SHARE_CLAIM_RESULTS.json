@@ -1,0 +1,25 @@
+{
+  "network": "testnet-10",
+  "startedAt": "2026-10-31T03:30:58.569Z",
+  "path": "share-page-multi-claim",
+  "ok": true,
+  "campaignId": "1042b54bfdfe7fbce08c0f8b1303f640",
+  "inputCount": 3,
+  "mode": "multi",
+  "goalSompi": "300000000",
+  "fundTxids": [
+    "6f3a318d8b5ab0bbc25e08bfc09ac3f5016269318c635ffa694a352020d93d34",
+    "8f9a1583af27b39877b27a50a4d5f85ee94ef7f443b074dce07d37dea87481d0",
+    "cb9408994be1278e4fd426310d113a4627a55310e7775491713d205ae5f600e2"
+  ],
+  "fundExplorers": [
+    "https://tn10.kaspa.stream/transactions/6f3a318d8b5ab0bbc25e08bfc09ac3f5016269318c635ffa694a352020d93d34",
+    "https://tn10.kaspa.stream/transactions/8f9a1583af27b39877b27a50a4d5f85ee94ef7f443b074dce07d37dea87481d0",
+    "https://tn10.kaspa.stream/transactions/cb9408994be1278e4fd426310d113a4627a55310e7775491713d205ae5f600e2"
+  ],
+  "claimTxid": "efcd8a4b0f3316e2317d679e4d1819dc7898999373a860d5b0b3ea1354032ee4",
+  "claimExplorer": "https://tn10.kaspa.stream/transactions/efcd8a4b0f3316e2317d679e4d1819dc7898999373a860d5b0b3ea1354032ee4",
+  "feeSompi": "10500000",
+  "outputAmountSompi": "289500000",
+  "finishedAt": "2026-10-31T03:31:03.051Z"
+}

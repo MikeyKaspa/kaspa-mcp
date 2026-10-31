@@ -19,6 +19,7 @@ import { decodeAddress } from "./l1/pure/address.js";
 import { AON_DEFAULT_GRACE_MS, computeRefundOpensAtMs } from "./crowdfund.js";
 import type { L1BrowserBuild } from "./sign/types.js";
 import type { CampaignPageRecord } from "./campaign-page.js";
+import { buildAoNClaimL1Build } from "./campaign-claim.js";
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -277,19 +278,15 @@ export async function handleCampaignHttp(request: Request): Promise<Response | n
       return json({ error: "Only the campaign owner can claim" }, 403);
     }
     try {
-      const goal = BigInt(rec.goalSompi);
-      const refundOpensAtMs = String(refundOpensAtOf(rec));
-      const pledgeUtxos: Array<{
-        pledge: (typeof rec.pledges)[0];
-        row: UtxoRow;
-        amount: bigint;
-        script: string;
-        version: number;
-        bytecodeHex: string;
-        dispatchTag: string;
-        entryParams: ReturnType<typeof entryOf>["params"];
+      const live: Array<{
+        backerAddress: string;
+        p2shAddress: string;
+        utxo: {
+          outpoint: { transactionId: string; index: number };
+          amount: string | number | bigint;
+          scriptPublicKey: { version: number; script: string };
+        };
       }> = [];
-      let total = 0n;
       for (const p of rec.pledges) {
         const list = await fetchUtxos(rec.networkId, p.p2shAddress);
         if (!list.length) continue;
@@ -297,106 +294,42 @@ export async function handleCampaignHttp(request: Request): Promise<Response | n
         const entryRow = row.utxoEntry ?? row;
         const amount = BigInt((entryRow as { amount?: string | number }).amount ?? 0);
         if (amount <= 0n) continue;
-        const derived = derivePledgeForBacker(rec, p.backerAddress);
-        const tpl = getTemplate("aon_pledge").loadedExample;
-        const loaded = rebindAoNPledge(tpl, {
-          ownerPkhHex: rec.ownerPkhHex,
-          backerPkhHex: derived.backerPkhHex,
-          campaignTagHex: rec.campaignTagHex,
-          goalSompi: goal,
-          deadline: BigInt(refundOpensAtMs),
-        });
-        const entry = entryOf(loaded, "claim");
         const { script, version } = parseSpk(entryRow as { scriptPublicKey?: unknown });
-        const bytecodeHex = [...loaded.bytecode].map((b) => b.toString(16).padStart(2, "0")).join("");
-        pledgeUtxos.push({
-          pledge: p,
-          row,
-          amount,
-          script,
-          version,
-          bytecodeHex,
-          dispatchTag: entry.dispatch_tag,
-          entryParams: entry.params,
+        live.push({
+          backerAddress: p.backerAddress,
+          p2shAddress: p.p2shAddress,
+          utxo: {
+            outpoint: row.outpoint,
+            amount,
+            scriptPublicKey: { version, script },
+          },
         });
-        total += amount;
       }
-      if (total < goal) {
-        return json({ error: `Goal not met yet (${total} < ${goal} sompi)` }, 400);
-      }
-      if (!pledgeUtxos.length) return json({ error: "No pledge UTXOs to claim" }, 404);
-
-      // Browser builder currently supports one P2SH input; co-spend up to 8 via first N
-      // when a single UTXO alone meets the goal, claim that one. Otherwise claim the
-      // minimal prefix of pledges whose sum >= goal (owner signs once per input on /sign
-      // when multi-input lands; for now use the largest single UTXO if it alone meets goal,
-      // else return all matching builds for the first pledge that... )
-      // Practical approach: pick pledges in order until sum >= goal, and if exactly 1 use
-      // existing single-input path; if >1 return multiClaim plan for the agent / e2e.
-      let run: typeof pledgeUtxos = [];
-      let runSum = 0n;
-      const sorted = [...pledgeUtxos].sort((a, b) => (a.amount < b.amount ? 1 : -1));
-      for (const u of sorted) {
-        run.push(u);
-        runSum += u.amount;
-        if (runSum >= goal) break;
-      }
-      if (run.length > 1) {
-        return json({
-          ok: false,
-          needMultiInput: true,
-          error:
-            "This campaign needs a multi-input claim (several pledges). Use your bot: ask it to claim the crowdfund with l1_prepare_spend / the campaign claim helper. One-tap multi-input claim is coming next.",
-          pledges: run.map((u) => ({
-            p2shAddress: u.pledge.p2shAddress,
-            amountSompi: String(u.amount),
-            backerAddress: u.pledge.backerAddress,
-          })),
-          totalSompi: String(runSum),
-          goalSompi: String(goal),
-        }, 400);
-      }
-      const u = run[0]!;
-      const fee = 3500000n;
-      const outAmt = u.amount - fee;
-      if (outAmt <= 0n) return json({ error: "Pledge too small to claim after fee" }, 400);
-      const net = netKaspa(rec.networkId);
-      const isTestnet = net === "testnet-10";
-      const l1Build: L1BrowserBuild = {
-        buildInBrowser: true,
-        kaspaNetwork: kaspaNetworkFor(rec.networkId, isTestnet),
-        utxoApiBase: utxoApiBaseFor(rec.networkId, isTestnet),
-        bytecodeHex: u.bytecodeHex,
-        entryName: "claim",
-        dispatchTag: u.dispatchTag,
-        entryParams: u.entryParams,
-        args: [null, null],
-        destinationAddress: rec.ownerAddress,
-        feeSompi: String(fee),
-        outputAmountSompi: String(outAmt),
-        expectedP2shAddress: u.pledge.p2shAddress,
-        sigOpCount: 10,
-        p2shUtxo: {
-          outpoint: u.row.outpoint,
-          amount: String(u.amount),
-          scriptPublicKey: { version: u.version, script: u.script },
-        },
-      };
+      const built = buildAoNClaimL1Build(rec, live);
       const tapToApprove = await attachTapToApprove("l1-spend", rec.networkId, {
-        l1Build,
+        l1Build: built.l1Build,
         meta: {
           templateId: "aon_pledge",
           contractName: "AoNPledge claim",
           entry: "claim",
-          p2shAddress: u.pledge.p2shAddress,
-          expectedP2shAddress: u.pledge.p2shAddress,
+          p2shAddress: built.p2shAddresses[0],
+          expectedP2shAddress: built.p2shAddresses[0],
           campaignId: rec.id,
           sharePageUrl: `/campaign/${rec.id}`,
           ownerAddress: rec.ownerAddress,
+          inputCount: built.inputCount,
+          totalSompi: built.totalSompi,
         },
       });
       if (!tapToApprove) return json({ error: "Sign session store unavailable" }, 503);
-      return json({ ok: true, tapToApprove, p2shAddress: u.pledge.p2shAddress, mode: "single" });
+      return json({
+        ok: true,
+        tapToApprove,
+        mode: built.mode,
+        inputCount: built.inputCount,
+        totalSompi: built.totalSompi,
+        p2shAddresses: built.p2shAddresses,
+      });
     } catch (e) {
       return json({ error: e instanceof Error ? e.message : String(e) }, 400);
     }

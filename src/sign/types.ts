@@ -24,6 +24,19 @@ export interface L1BrowserBuild {
     amount: string;
     scriptPublicKey: { version: number; script: string };
   };
+  /**
+   * Multi-input P2SH spend (AoN claim co-spend). Each input may have its own
+   * redeem bytecode (backerPkh differs). When set, overrides single p2shUtxo.
+   */
+  p2shInputs?: Array<{
+    outpoint: { transactionId: string; index: number };
+    amount: string;
+    scriptPublicKey: { version: number; script: string };
+    bytecodeHex: string;
+    dispatchTag?: string;
+    expectedP2shAddress?: string;
+    sigOpCount?: number;
+  }>;
   /** CLTV / reclaim path */
   lockTimeMs?: string;
   expectedP2shAddress?: string;

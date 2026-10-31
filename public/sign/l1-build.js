@@ -191,38 +191,79 @@ export async function buildFundTx(build) {
   };
 }
 
-function spendUtxoAndAmounts(build) {
-  const fee = BigInt(build.feeSompi || 300000);
-  const inAmt = BigInt(build.p2shUtxo.amount);
-  const outAmt = BigInt(build.outputAmountSompi || inAmt - fee);
-  let script = String(build.p2shUtxo.scriptPublicKey.script).replace(/^0x/, "");
-  if (build.p2shUtxo.scriptPublicKey.version === 0 && !script.startsWith("0000")) {
+function normalizeSpk(spkObj) {
+  let script = String(spkObj.script || spkObj.scriptPublicKey || "").replace(/^0x/, "");
+  const version = spkObj.version ?? 0;
+  if (version === 0 && !script.startsWith("0000")) {
     script = "0000" + script;
   }
-  const utxo = {
-    outpoint: build.p2shUtxo.outpoint,
-    amount: inAmt,
-    scriptPublicKey: script,
-    blockDaaScore: 0n,
-    isCoinbase: false,
-  };
-  return { fee, inAmt, outAmt, utxo };
+  return { script, version };
 }
 
-function mkSpendTx(utxo, outAmt, destinationAddress, sigScript, lockTimeMs) {
+/** Single or multi P2SH inputs for spend/claim. */
+function spendInputsOf(build) {
+  const fee = BigInt(build.feeSompi || 300000);
+  const sigOpDefault = Number(build.sigOpCount || 1);
+  if (Array.isArray(build.p2shInputs) && build.p2shInputs.length) {
+    const inputs = build.p2shInputs.map((row, i) => {
+      const amount = BigInt(row.amount);
+      const { script } = normalizeSpk(row.scriptPublicKey || {});
+      return {
+        index: i,
+        amount,
+        utxo: {
+          outpoint: row.outpoint,
+          amount,
+          scriptPublicKey: script,
+          blockDaaScore: 0n,
+          isCoinbase: false,
+        },
+        bytecodeHex: row.bytecodeHex || build.bytecodeHex,
+        dispatchTag: row.dispatchTag || build.dispatchTag,
+        sigOpCount: Number(row.sigOpCount || sigOpDefault),
+        expectedP2shAddress: row.expectedP2shAddress,
+      };
+    });
+    const inAmt = inputs.reduce((a, x) => a + x.amount, 0n);
+    const outAmt = BigInt(build.outputAmountSompi || inAmt - fee);
+    return { fee, inAmt, outAmt, inputs };
+  }
+  if (!build.p2shUtxo) throw new Error("Missing p2shUtxo / p2shInputs");
+  const inAmt = BigInt(build.p2shUtxo.amount);
+  const outAmt = BigInt(build.outputAmountSompi || inAmt - fee);
+  const { script } = normalizeSpk(build.p2shUtxo.scriptPublicKey || {});
+  const inputs = [
+    {
+      index: 0,
+      amount: inAmt,
+      utxo: {
+        outpoint: build.p2shUtxo.outpoint,
+        amount: inAmt,
+        scriptPublicKey: script,
+        blockDaaScore: 0n,
+        isCoinbase: false,
+      },
+      bytecodeHex: build.bytecodeHex,
+      dispatchTag: build.dispatchTag,
+      sigOpCount: sigOpDefault,
+      expectedP2shAddress: build.expectedP2shAddress,
+    },
+  ];
+  return { fee, inAmt, outAmt, inputs };
+}
+
+function mkSpendTx(inputs, outAmt, destinationAddress, sigScripts, lockTimeMs) {
   const outSpk = payToAddressScript(destinationAddress);
   const lockTime = lockTimeMs != null && lockTimeMs !== "" ? BigInt(lockTimeMs) : 0n;
   return new Transaction({
     version: 0,
-    inputs: [
-      {
-        previousOutpoint: utxo.outpoint,
-        signatureScript: sigScript || "",
-        sequence: 0n,
-        sigOpCount: Number(utxo.sigOpCount || 1),
-        utxo,
-      },
-    ],
+    inputs: inputs.map((inp, i) => ({
+      previousOutpoint: inp.utxo.outpoint,
+      signatureScript: (sigScripts && sigScripts[i]) || "",
+      sequence: 0n,
+      sigOpCount: inp.sigOpCount || 1,
+      utxo: inp.utxo,
+    })),
     outputs: [{ value: outAmt, scriptPublicKey: outSpk }],
     lockTime,
     subnetworkId: "0000000000000000000000000000000000000000",
@@ -233,27 +274,30 @@ function mkSpendTx(utxo, outAmt, destinationAddress, sigScript, lockTimeMs) {
 
 /**
  * Unsigned P2SH spend for KasWare signPskt (sighash) then finalizeCovenantSpend.
- * Optional __SIGN_TEST_KEY__ still pre-fills for harnesses that skip the wallet step.
+ * Supports multi-input AoN claim (p2shInputs).
  */
 export async function buildSpendTx(build) {
   await ensureKaspa();
-  const { fee, outAmt, utxo } = spendUtxoAndAmounts(build);
-  const unsigned = mkSpendTx(utxo, outAmt, build.destinationAddress, "", build.lockTimeMs);
+  const { fee, outAmt, inputs } = spendInputsOf(build);
+  if (outAmt <= 0n) throw new Error("fee too high for spend amount");
+  const unsigned = mkSpendTx(inputs, outAmt, build.destinationAddress, null, build.lockTimeMs);
   const safeJson = unsigned.serializeToSafeJSON();
   const base = {
     safeJson,
-    signInputs: [{ index: 0, sighashType: 1 }],
+    signInputs: inputs.map((_, i) => ({ index: i, sighashType: 1 })),
     mode: "unsigned_needs_wallet_sig",
     note:
-      "Approve once in KasWare: signPskt produces the Schnorr sighash signature; this page wraps the SilverScript unlock and pushTx.",
+      inputs.length > 1
+        ? "Approve once: wallet signs all " + inputs.length + " pledge inputs; this page wraps each covenant unlock and broadcasts."
+        : "Approve once in KasWare: signPskt produces the Schnorr sighash signature; this page wraps the SilverScript unlock and pushTx.",
     feeSompi: String(fee),
     outputAmountSompi: String(outAmt),
+    inputCount: inputs.length,
   };
 
   const entryParams = build.entryParams || [];
   const needsSig = entryParams.some((p) => p.type && p.type.kind === "sig");
   if (!needsSig) {
-    // Permissionless reclaim: args already carry backer pubkey; no wallet sig needed.
     const xonlyArg = (build.args || []).find((a) => typeof a === "string" && /^[0-9a-fA-F]{64}$/i.test(String(a).replace(/^0x/, "")));
     const finalized = await finalizeCovenantSpend(build, safeJson, {
       signatureScriptHex: "00",
@@ -265,56 +309,75 @@ export async function buildSpendTx(build) {
   const testKey = typeof globalThis !== "undefined" ? globalThis.__SIGN_TEST_KEY__ : null;
   if (!testKey || !globalThis.__SIGN_PREFILL_UNLOCK__) return base;
 
-  // Legacy harness: pre-fill unlock with test key (e2e uses wallet mock + finalize instead)
   const key = new PrivateKey(String(testKey).replace(/^0x/, ""));
   const xonlyHex = key.toPublicKey().toXOnlyPublicKey().toString();
-  const finalized = await finalizeCovenantSpend(build, safeJson, {
-    signatureScriptHex: String(createInputSignature(unsigned, 0, key, SighashType.All)).replace(/^0x/, ""),
+  // Prefill: sign every input, then finalize (test harness)
+  const partial = JSON.parse(safeJson);
+  for (let i = 0; i < inputs.length; i++) {
+    partial.inputs[i].signatureScript = String(createInputSignature(unsigned, i, key, SighashType.All)).replace(/^0x/, "");
+  }
+  const finalized = await finalizeCovenantSpend(build, JSON.stringify(partial), {
     xonlyPubkeyHex: xonlyHex,
   });
   return { ...base, ...finalized, mode: "signed_ready_for_pushTx" };
 }
 
 /**
- * After KasWare signPskt on the unsigned P2SH spend, wrap unlock + redeem and return pushTx-ready JSON.
- * @param partialSignedSafeJson — SafeJSON from signPskt (input 0 signatureScript = Schnorr sighash sig)
- * @param opts.xonlyPubkeyHex — 32-byte x-only (or 33-byte compressed) for TipJar/Escrow $pk
- * @param opts.signatureScriptHex — optional override; else read from partialSigned input 0
+ * After wallet signPskt on the unsigned P2SH spend, wrap unlock + redeem per input.
+ * Multi-input: each input uses its own bytecodeHex (AoN backer window) and its own sighash sig.
  */
 export async function finalizeCovenantSpend(build, partialSignedSafeJson, opts) {
   await ensureKaspa();
-  const { outAmt, utxo } = spendUtxoAndAmounts(build);
-  const redeem = hexToBytes(build.bytecodeHex);
+  const { fee, outAmt, inputs } = spendInputsOf(build);
   const parsed = JSON.parse(partialSignedSafeJson);
-  const entry = { dispatch_tag: build.dispatchTag, params: build.entryParams || [] };
-  const needsSig = (entry.params || []).some((p) => p.type && p.type.kind === "sig");
-  const sigHex = String(
-    opts.signatureScriptHex || parsed.inputs?.[0]?.signatureScript || "",
-  ).replace(/^0x/, "");
-  if (needsSig && !sigHex) throw new Error("No signatureScript from KasWare signPskt — cannot unlock covenant");
-  const sigBytes = sigHex && sigHex !== "00" ? hexToBytes(sigHex) : new Uint8Array(0);
-  const xonlyHexOpt = opts.xonlyPubkeyHex || (build.args || []).find((a) => typeof a === "string" && /^[0-9a-fA-F]{64}$/.test(a.replace(/^0x/, "")));
+  const entryBase = { dispatch_tag: build.dispatchTag, params: build.entryParams || [] };
+  const needsSig = (entryBase.params || []).some((p) => p.type && p.type.kind === "sig");
+  const xonlyHexOpt =
+    opts.xonlyPubkeyHex ||
+    (build.args || []).find((a) => typeof a === "string" && /^[0-9a-fA-F]{64}$/.test(String(a).replace(/^0x/, "")));
   const xonly = hexToBytes(toXOnlyHex(xonlyHexOpt || opts.xonlyPubkeyHex || "00".repeat(32)));
-  const filled = (build.args || []).map((a, i) => {
-    const kind = entry.params[i]?.type?.kind;
-    if (a === "$sig" || a === "$signature" || (a == null && kind === "sig")) return sigBytes;
-    if (a === "$pk" || a === "$pubkey" || (a == null && kind === "pubkey")) return xonly;
-    if (typeof a === "string" && kind === "pubkey") return hexToBytes(toXOnlyHex(a));
-    return a;
-  });
-  for (let i = 0; i < entry.params.length; i++) {
-    if (entry.params[i].type.kind === "sig" && !filled[i]) filled[i] = sigBytes;
-    if (entry.params[i].type.kind === "pubkey" && !filled[i]) filled[i] = xonly;
+
+  const unlockHexes = [];
+  for (let i = 0; i < inputs.length; i++) {
+    const inp = inputs[i];
+    const entry = {
+      dispatch_tag: inp.dispatchTag || build.dispatchTag,
+      params: build.entryParams || [],
+    };
+    let sigHex = "";
+    if (opts.signatureScriptHex && inputs.length === 1) {
+      sigHex = String(opts.signatureScriptHex).replace(/^0x/, "");
+    } else {
+      sigHex = String(parsed.inputs?.[i]?.signatureScript || "").replace(/^0x/, "");
+    }
+    if (needsSig && !sigHex) {
+      throw new Error("No signatureScript on input " + i + " from wallet — cannot unlock covenant");
+    }
+    const sigBytes = sigHex && sigHex !== "00" ? hexToBytes(sigHex) : new Uint8Array(0);
+    const filled = (build.args || []).map((a, pi) => {
+      const kind = entry.params[pi]?.type?.kind;
+      if (a === "$sig" || a === "$signature" || (a == null && kind === "sig")) return sigBytes;
+      if (a === "$pk" || a === "$pubkey" || (a == null && kind === "pubkey")) return xonly;
+      if (typeof a === "string" && kind === "pubkey") return hexToBytes(toXOnlyHex(a));
+      return a;
+    });
+    for (let pi = 0; pi < entry.params.length; pi++) {
+      if (entry.params[pi].type.kind === "sig" && !filled[pi]) filled[pi] = sigBytes;
+      if (entry.params[pi].type.kind === "pubkey" && !filled[pi]) filled[pi] = xonly;
+    }
+    const unlock = buildEntryUnlock(entry, filled);
+    const redeem = hexToBytes(inp.bytecodeHex);
+    unlockHexes.push(String(payToScriptHashSignatureScript(redeem, unlock)));
   }
-  const unlock = buildEntryUnlock(entry, filled);
-  const unlockHex = String(payToScriptHashSignatureScript(redeem, unlock));
-  const signed = mkSpendTx(utxo, outAmt, build.destinationAddress, unlockHex, build.lockTimeMs);
+
+  const signed = mkSpendTx(inputs, outAmt, build.destinationAddress, unlockHexes, build.lockTimeMs);
   return {
     safeJson: partialSignedSafeJson,
     signedSafeJson: signed.serializeToSafeJSON(),
     mode: "signed_ready_for_pushTx",
-    feeSompi: String(spendUtxoAndAmounts(build).fee),
+    feeSompi: String(fee),
     outputAmountSompi: String(outAmt),
+    inputCount: inputs.length,
   };
 }
 

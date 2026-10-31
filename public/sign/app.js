@@ -438,7 +438,11 @@
     if (w.api === "kastle") {
       status("Check your wallet popup…", "signing");
       var net = kastleNetworkId();
-      var scripts = [{ inputIndex: 0, scriptHex: session.l1Build.bytecodeHex, signType: "All" }];
+      var scripts = (session.l1Build.p2shInputs && session.l1Build.p2shInputs.length
+        ? session.l1Build.p2shInputs.map(function (inp, i) {
+            return { inputIndex: i, scriptHex: inp.bytecodeHex || session.l1Build.bytecodeHex, signType: "All" };
+          })
+        : [{ inputIndex: 0, scriptHex: session.l1Build.bytecodeHex, signType: "All" }]);
       return Promise.resolve(window.kastle.signTx(net, json, scripts))
         .then(function (partial) {
           return approveSpendWithPartial(partial, resolveXonlyKastle());
