@@ -1,0 +1,69 @@
+{
+  "ok": true,
+  "network": "kaspa-l1-mainnet",
+  "steps": [
+    {
+      "step": "preflight_balance",
+      "address": "kaspa:qz500cq7h90xd0h26ltqtka2eh54fqcntmh3563vz439z07k0f96xac3cae2l",
+      "balanceSompi": "300786900",
+      "balanceKas": 3.007869
+    },
+    {
+      "step": "choose_network",
+      "choice": "mainnet"
+    },
+    {
+      "step": "tipjar_fund",
+      "txid": "49620451e3032f36fc560d0a19662eb7df1e433aed3de288d0812e5f29d7fa58",
+      "p2shAddress": "kaspa:pzwvjkky9p888kf6jzk0t9smw6ac723pp7jxvw7tys9lm8ljsv4xq4gxtmssa",
+      "amountSompi": "100000000",
+      "explorer": "https://explorer.kaspa.org/transactions/49620451e3032f36fc560d0a19662eb7df1e433aed3de288d0812e5f29d7fa58",
+      "confirmation": {
+        "status": "accepted",
+        "isAccepted": true,
+        "recoveredFromSubmitRace": false
+      }
+    },
+    {
+      "step": "tipjar_utxo",
+      "amountSompi": "100000000",
+      "index": 0
+    },
+    {
+      "step": "tipjar_withdraw",
+      "txid": "3d4648765a2006288acce44220b010ed0a5da1487763b44d59834c6abc31d6c2",
+      "destinationAddress": "kaspa:qz500cq7h90xd0h26ltqtka2eh54fqcntmh3563vz439z07k0f96xac3cae2l",
+      "explorer": "https://explorer.kaspa.org/transactions/3d4648765a2006288acce44220b010ed0a5da1487763b44d59834c6abc31d6c2",
+      "confirmation": {
+        "status": "accepted",
+        "isAccepted": true
+      }
+    },
+    {
+      "step": "post_withdraw_balance",
+      "balanceSompi": "300076900",
+      "balanceKas": 3.000769,
+      "note": "Spending key == dedicated L1 wallet; withdraw_all would send to same address"
+    },
+    {
+      "step": "withdraw_all",
+      "skipped": true,
+      "reason": "spendingAddress === mainAddress (TipJar owner is dedicated L1 wallet)"
+    },
+    {
+      "step": "final_balance",
+      "address": "kaspa:qz500cq7h90xd0h26ltqtka2eh54fqcntmh3563vz439z07k0f96xac3cae2l",
+      "balanceSompi": "300076900",
+      "balanceKas": 3.000769,
+      "deltaSompi": "-710000",
+      "approxFeesAndDustSompi": "710000"
+    }
+  ],
+  "at": "2026-10-31T01:34:18.961Z",
+  "warnings": [
+    "UNAUDITED / USE AT YOUR OWN RISK — SilverScript mainnet smoke authorized by Michael"
+  ],
+  "kasplexL2Untouched": true,
+  "workerSecretSet": false,
+  "tipjarOwner": "dedicated L1 wallet (same key as spending)"
+}
