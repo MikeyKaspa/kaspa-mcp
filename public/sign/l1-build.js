@@ -209,8 +209,9 @@ function spendUtxoAndAmounts(build) {
   return { fee, inAmt, outAmt, utxo };
 }
 
-function mkSpendTx(utxo, outAmt, destinationAddress, sigScript) {
+function mkSpendTx(utxo, outAmt, destinationAddress, sigScript, lockTimeMs) {
   const outSpk = payToAddressScript(destinationAddress);
+  const lockTime = lockTimeMs != null && lockTimeMs !== "" ? BigInt(lockTimeMs) : 0n;
   return new Transaction({
     version: 0,
     inputs: [
@@ -218,12 +219,12 @@ function mkSpendTx(utxo, outAmt, destinationAddress, sigScript) {
         previousOutpoint: utxo.outpoint,
         signatureScript: sigScript || "",
         sequence: 0n,
-        sigOpCount: 1,
+        sigOpCount: Number(utxo.sigOpCount || 1),
         utxo,
       },
     ],
     outputs: [{ value: outAmt, scriptPublicKey: outSpk }],
-    lockTime: 0n,
+    lockTime,
     subnetworkId: "0000000000000000000000000000000000000000",
     gas: 0n,
     payload: "",
@@ -237,7 +238,7 @@ function mkSpendTx(utxo, outAmt, destinationAddress, sigScript) {
 export async function buildSpendTx(build) {
   await ensureKaspa();
   const { fee, outAmt, utxo } = spendUtxoAndAmounts(build);
-  const unsigned = mkSpendTx(utxo, outAmt, build.destinationAddress, "");
+  const unsigned = mkSpendTx(utxo, outAmt, build.destinationAddress, "", build.lockTimeMs);
   const safeJson = unsigned.serializeToSafeJSON();
   const base = {
     safeJson,
@@ -292,7 +293,7 @@ export async function finalizeCovenantSpend(build, partialSignedSafeJson, opts) 
   }
   const unlock = buildEntryUnlock(entry, filled);
   const unlockHex = String(payToScriptHashSignatureScript(redeem, unlock));
-  const signed = mkSpendTx(utxo, outAmt, build.destinationAddress, unlockHex);
+  const signed = mkSpendTx(utxo, outAmt, build.destinationAddress, unlockHex, build.lockTimeMs);
   return {
     safeJson: partialSignedSafeJson,
     signedSafeJson: signed.serializeToSafeJSON(),

@@ -29,8 +29,8 @@ export type ResolveFundArgs = {
   /** Lockbox */
   unlockAtMs?: number | bigint;
   /** SoftCap / AoN */
-  goalSompi?: number | bigint;
-  deadlineMs?: number | bigint;
+  goalSompi?: number | bigint | string;
+  deadlineMs?: number | bigint | string;
   /** TimeoutVault */
   recipientXonlyHex?: string;
   senderXonlyHex?: string;
@@ -107,8 +107,8 @@ export function resolveTemplateBytecodeForFund(args: ResolveFundArgs): {
       }
       loaded = rebindSoftCapJar(loaded, {
         ownerPkhHex,
-        goalSompi: args.goalSompi,
-        deadline: args.deadlineMs,
+        goalSompi: BigInt(args.goalSompi),
+        deadline: BigInt(args.deadlineMs),
       });
       rebound = true;
       boundParams.ownerPkhHex = ownerPkhHex;
@@ -133,8 +133,8 @@ export function resolveTemplateBytecodeForFund(args: ResolveFundArgs): {
         ownerPkhHex,
         backerPkhHex: backer,
         campaignTagHex: tag,
-        goalSompi: args.goalSompi,
-        deadline: args.deadlineMs,
+        goalSompi: BigInt(args.goalSompi),
+        deadline: BigInt(args.deadlineMs),
       });
       rebound = true;
       boundParams.ownerPkhHex = ownerPkhHex;

@@ -21,6 +21,8 @@ import {
 } from "./sign/index.js";
 import { setNetworkPreferenceKv, setNetworkClientKey, hydrateSessionNetworkPreference } from "./session-network.js";
 import { setContractPageContext, getContractPage, renderContractPageHtml } from "./contract-page.js";
+import { setCampaignPageContext } from "./campaign-page.js";
+import { handleCampaignHttp } from "./campaign-http.js";
 import { applyNodeConfigFromEnv } from "./endpoints.js";
 import { connectorVersion } from "./version.js";
 import { requireAuthIfConfigured, stripTokenPathPrefix } from "./auth.js";
@@ -126,9 +128,11 @@ export default {
       if (existing) process.env.KASPA_SPENDING_REGISTRY_JSON = existing;
       setNetworkPreferenceKv(env.SIGN_SESSIONS);
       setContractPageContext({ kv: env.SIGN_SESSIONS, publicBaseUrl: url.origin });
+      setCampaignPageContext({ kv: env.SIGN_SESSIONS, publicBaseUrl: url.origin });
     } else {
       setNetworkPreferenceKv(null);
       setContractPageContext({ kv: null, publicBaseUrl: url.origin });
+      setCampaignPageContext({ kv: null, publicBaseUrl: url.origin });
     }
     applyNodeConfigFromEnv(process.env);
     // Per-client network preference (demo key or IP)
@@ -177,6 +181,9 @@ export default {
       if (signRes) return withCors(signRes);
     }
 
+    const campaignRes = await handleCampaignHttp(request);
+    if (campaignRes) return withCors(campaignRes);
+
     if (url.pathname.startsWith("/page/")) {
       const id = url.pathname.slice("/page/".length).split("/")[0] || "";
       const rec = await getContractPage(id);
@@ -191,7 +198,7 @@ export default {
     }
 
     if (url.pathname !== "/mcp") {
-      return withCors(new Response("Kaspa MCP — POST /mcp · GET /sign/<id> · GET /page/<id>", { status: 404 }));
+      return withCors(new Response("Kaspa MCP — POST /mcp · GET /sign/<id> · GET /page/<id> · GET /campaign/<id>", { status: 404 }));
     }
 
     const bodyText =

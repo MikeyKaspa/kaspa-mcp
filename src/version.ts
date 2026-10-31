@@ -26,6 +26,8 @@ export type LatestCheck = {
   updateHint?: string;
   /** Plain status for clients — prefer this over commit jargon. */
   message?: string;
+  /** Always present — changelog / releases page */
+  releaseNotesUrl?: string;
   checkedAt?: string;
   error?: string;
 };
@@ -77,6 +79,7 @@ export async function checkAgainstLatest(opts?: {
         latest: `v${cur.version}`,
         behind: false,
         latestUrl: "https://github.com/MikeyKaspa/kaspa-mcp/releases",
+        releaseNotesUrl: "https://github.com/MikeyKaspa/kaspa-mcp/releases",
         updateHint: undefined,
         message: "You're up to date",
         checkedAt: new Date().toISOString(),
@@ -97,6 +100,7 @@ export async function checkAgainstLatest(opts?: {
         ? 'Your copy is behind the latest release. Call self_host({ step: "update" }) for safe copy-paste update steps. Secrets/KV are preserved. Never auto-updates.'
         : undefined,
       message: behind ? undefined : "You're up to date",
+      releaseNotesUrl: "https://github.com/MikeyKaspa/kaspa-mcp/releases",
       checkedAt: new Date().toISOString(),
     };
   } catch (e) {

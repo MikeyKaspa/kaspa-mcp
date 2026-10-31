@@ -11,24 +11,26 @@ describe("self_host guide", () => {
     else process.env.MCP_PUBLIC = prev;
   });
 
-  it("start gives one-command deploy and You do / I do without leaking keys", async () => {
+  it("start leads with zero-install Cloudflare + faucet, Node only as advanced", async () => {
     const r = await runSelfHostGuide({ step: "start" });
     expect(r.sharedDemo).toBe(true);
     expect(JSON.stringify(r)).not.toMatch(/0x[0-9a-fA-F]{64}/);
     expect(r.youDo).toBeTruthy();
     expect(r.iDo).toBeTruthy();
-    expect(String(r.commands || r.oneCommandDeploy || "")).toMatch(/selfhost:setup|kaspa-mcp/);
+    expect(String(r.deployToCloudflareUrl || r.oneClickPrimary || "")).toContain("deploy.workers.cloudflare.com");
+    expect(String(r.faucetUrl || r.faucetNote || "")).toMatch(/faucet-tn10/);
     expect(String(r.tipAlwaysAllow || "")).toMatch(/Always allow/i);
-    expect(String(r.trapToAvoid || "")).toMatch(/keyless|no-popup|selfhost/i);
-    expect(JSON.stringify(r)).not.toMatch(/\bNode\b/);
+    expect(String(r.primaryPath || "")).toMatch(/zero_install/i);
+    // Node must not be required in primary path text
+    expect(JSON.stringify(r.youDo)).not.toMatch(/\bNode\.js\b|\bnpm install\b|\bgit clone\b/);
+    expect(String(r.advancedNodeOnly || r.oneCommandDeployAdvanced || "")).toMatch(/Advanced|Node/i);
   });
 
-  it("deploy cloudflare gives copy-paste wrangler.selfhost / selfhost:setup commands", async () => {
+  it("deploy cloudflare leads with Deploy button + faucet", async () => {
     const r = await runSelfHostGuide({ step: "deploy", platform: "cloudflare" });
-    expect(String(r.commands)).toContain("wrangler.selfhost.toml");
-    expect(String(r.commands)).toContain("selfhost:setup");
-    expect(String(r.oneClickKeylessOnly || r.oneClick || "")).toContain("deploy.workers.cloudflare.com");
-    expect(String(r.oneClickNote || r.trapToAvoid || r.humanSteps || "")).toMatch(/keyless|no-popup/i);
+    expect(String(r.oneClickPrimary || r.oneClickKeylessOnly || "")).toContain("deploy.workers.cloudflare.com");
+    expect(String(r.faucetUrl || JSON.stringify(r.humanSteps))).toMatch(/faucet-tn10/);
+    expect(String(r.humanSteps || "")).toMatch(/zero install|Deploy to Cloudflare|MCP_PUBLIC/i);
   });
 
   it("create_wallet on shared demo refuses key creation path", async () => {

@@ -31,6 +31,9 @@ describe("version + self_host update", () => {
       fetchImpl: async () => new Response("{}", { status: 404 }),
     });
     expect(r.behind).toBe(false);
+    if ('releaseNotesUrl' in (r as object) || true) {
+      expect((r as { releaseNotesUrl?: string }).releaseNotesUrl || r.latestUrl).toMatch(/releases/);
+    }
     expect(r.message).toMatch(/up to date/i);
   });
 

@@ -131,8 +131,33 @@ export async function handleSignHttp(
     if (!session || !/^[a-fA-F0-9x]+$/.test(txid)) {
       return Response.json({ error: "bad request" }, { status: 400 });
     }
-    return Response.json({ url: explorerFor(session.networkId, txid.replace(/^0x/, "")) });
+    const clean = txid.replace(/^0x/, "");
+    session.submittedTxid = clean;
+    session.submittedAt = Date.now();
+    await store.put(session);
+    return Response.json({ url: explorerFor(session.networkId, clean), submittedTxid: clean });
   }
+
+  const statusMatch = pathname.match(/^\/api\/sign\/([a-f0-9]{32})\/status$/i);
+  if (statusMatch && request.method === "GET") {
+    const session = await store.get(statusMatch[1]!);
+    if (!session) return Response.json({ error: "Unknown or expired sign session", status: "unknown" }, { status: 404 });
+    const submitted = Boolean(session.submittedTxid);
+    return Response.json({
+      id: session.id,
+      kind: session.kind,
+      status: submitted ? "submitted" : "pending",
+      submittedTxid: session.submittedTxid || null,
+      submittedAt: session.submittedAt || null,
+      explorerUrl: session.submittedTxid
+        ? explorerFor(session.networkId, session.submittedTxid)
+        : null,
+      expiresAt: session.expiresAt,
+      networkId: session.networkId,
+      meta: session.meta || {},
+    });
+  }
+
 
   return null;
 }

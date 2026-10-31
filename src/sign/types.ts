@@ -24,6 +24,10 @@ export interface L1BrowserBuild {
     amount: string;
     scriptPublicKey: { version: number; script: string };
   };
+  /** CLTV / reclaim path */
+  lockTimeMs?: string;
+  expectedP2shAddress?: string;
+  sigOpCount?: number;
 }
 
 export interface SignSession {
@@ -49,11 +53,22 @@ export interface SignSession {
     gasPrice?: string;
     nonce?: number;
   };
+  /** Set when /sign page reports a successful broadcast */
+  submittedTxid?: string;
+  submittedAt?: number;
   meta?: {
     p2shAddress?: string;
     entry?: string;
     contractName?: string;
     templateId?: string;
+    expectedP2shAddress?: string;
+    sharePageUrl?: string;
+    campaignId?: string;
+    campaignTagHex?: string;
+    goalSompi?: string;
+    deadlineMs?: string;
+    backerAddress?: string;
+    [key: string]: unknown;
   };
 }
 

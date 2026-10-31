@@ -80,41 +80,45 @@ export async function runSelfHostGuide(args: SelfHostArgs): Promise<Record<strin
         "The shared public connector never holds keys, so every send needs your tap. Your own free Cloudflare copy can hold a tiny spending wallet on YOUR account only — then you say “build me a tip jar” and it just does it. Start on testnet (free test KAS).",
       youDo: [
         "1. Make a free Cloudflare account (dash.cloudflare.com) if you do not have one.",
-        "2. Copy-paste the one-command deploy block below in a terminal (installs and publishes your connector).",
-        "3. Copy the connector link it prints (ends with /mcp).",
-        "4. In Claude: add that connector link as a custom connector, then turn on Always allow for it (stops per-action prompts).",
-        "5. Tell me your testnet receive address (kaspatest:q…) so leftovers can only go back to you.",
-        "6. Fund the spending address once from the free testnet faucet (I will give you the link).",
+        "2. Primary (zero install): open the Deploy to Cloudflare link below — no Node/npm/git needed. Or use the Cloudflare dashboard to create a Worker from this repo.",
+        "3. In the Cloudflare dashboard → your Worker → Settings → Variables: add MCP_PUBLIC=false, and (optional) paste secrets there — private key slot for the spending wallet comes next with me.",
+        "4. Copy your connector link (…workers.dev/mcp).",
+        "5. In Claude: add that connector link, then turn on Always allow for it.",
+        "6. Tell me your testnet receive address (kaspatest:q…) — leftovers can ONLY go back to that locked address; contract owners are set to your address where the template allows.",
+        "7. Fund once from the free testnet faucet: https://faucet-tn10.kaspanet.io/",
       ],
       iDo: [
-        "Walk you through each step with copy-paste only.",
-        "Create the spending wallet and lock it to your address.",
-        "Remember testnet vs mainnet.",
-        "Build and deploy contracts from chat with no popups once funded.",
+        "Walk you through dashboard or advanced CLI steps.",
+        "Create the spending wallet locked to YOUR address (withdrawals only to that address).",
+        "Set contract owners to your address on templates that support it.",
+        "Build from chat once funded.",
       ],
-      oneCommandDeploy: code(`
-npm create kaspa-mcp@latest
-# or:
-git clone https://github.com/MikeyKaspa/kaspa-mcp && cd kaspa-mcp && npm install && npm run selfhost:setup
-`),
-      commands: code(`
-git clone https://github.com/MikeyKaspa/kaspa-mcp
-cd kaspa-mcp
-npm install
-npm run selfhost:setup
-`),
+      primaryPath: "zero_install_cloudflare",
+      deployToCloudflareUrl:
+        "https://deploy.workers.cloudflare.com/?url=https://github.com/MikeyKaspa/kaspa-mcp",
+      faucetUrl: "https://faucet-tn10.kaspanet.io/",
+      faucetNote: "Get free test KAS here first: https://faucet-tn10.kaspanet.io/ — paste your kaspatest: address.",
       beforeYouStart: [
         "Free Cloudflare account",
         "A Kaspa wallet address you control on testnet (kaspatest:q…)",
-        "About 2 minutes + one free faucet top-up",
+        "Free test KAS from https://faucet-tn10.kaspanet.io/",
+        "About 2 minutes",
       ],
       tipAlwaysAllow:
         "In Claude, after adding your connector link, enable Always allow for this connector so you are not asked to approve every tool call.",
-      askUser: "Say “deploy” when your Cloudflare login is ready — I will stay on Cloudflare hosting unless you ask for local.",
+      askUser: "Open the Deploy to Cloudflare link when ready — say “deployed” with your connector link. Ask for “advanced CLI” only if you want Node on your computer.",
       next: 'self_host({ step: "deploy", platform: "cloudflare" })',
       liveStatus,
+      advancedNodeOnly:
+        "Only if you want a local/CLI setup: Node 20+ and git — npm create kaspa-mcp@latest or git clone + npm run selfhost:setup. Skip this unless you asked for advanced.",
+      oneCommandDeployAdvanced: code(`
+# Advanced only (needs Node + git on your computer):
+npm create kaspa-mcp@latest
+`),
+      spendingWalletNote:
+        "Spending wallet withdraws ONLY to your locked receive address. Crowdfund/tipjar/lockbox owners are set to your address on the public or self-host flow.",
       trapToAvoid:
-        "The big blue “Deploy to Cloudflare” button alone is tap-to-approve only (no spending wallet). Use the one-command setup above for no-popup chat-deploy.",
+        "After Deploy to Cloudflare, set MCP_PUBLIC=false on your Worker so it is your private copy. Then create the spending wallet locked to your address.",
     };
   }
 
@@ -141,16 +145,21 @@ npm start
     }
     return {
       ...base,
-      title: "Deploy your free copy on Cloudflare (no-popup ready)",
+      title: "Deploy your free copy on Cloudflare (zero install first)",
       humanSteps: [
-        "Recommended (one command after Cloudflare login): clone once, then npm run selfhost:setup — it deploys the self-host Worker and prints your /mcp URL.",
-        "Or copy-paste the short commands below.",
-        "Avoid the generic “Deploy to Cloudflare” button if you want no-popup deploys — that button installs the keyless public config.",
+        "Primary: open Deploy to Cloudflare (no Node/npm/git). After deploy, in Worker Settings → Variables set MCP_PUBLIC=false.",
+        "Then add your connector link in Claude and enable Always allow.",
+        "Tell me your kaspatest: address — I lock the spending wallet so leftovers only return to you; contract owners use your address where allowed.",
+        "Faucet for free test KAS: https://faucet-tn10.kaspanet.io/",
+        "Advanced (optional): CLI with Node — only if you ask.",
       ],
+      oneClickPrimary:
+        "https://deploy.workers.cloudflare.com/?url=https://github.com/MikeyKaspa/kaspa-mcp",
       oneClickKeylessOnly:
         "https://deploy.workers.cloudflare.com/?url=https://github.com/MikeyKaspa/kaspa-mcp",
       oneClickNote:
-        "Keyless only (tap-to-approve). For chat-deploy without popups use the commands / selfhost:setup below.",
+        "Zero-install Deploy button. Afterward set MCP_PUBLIC=false in the dashboard, then spending_wallet_create on your copy for no-popup deploys.",
+      faucetUrl: "https://faucet-tn10.kaspanet.io/",
       commands: code(`
 git clone https://github.com/MikeyKaspa/kaspa-mcp
 cd kaspa-mcp
@@ -256,7 +265,7 @@ printf '%s' '0xYOUR_KEY' | npx wrangler secret put KASPA_SPENDING_PRIVATE_KEY -c
       title: "Fund the spending address (testnet — free)",
       humanSteps: [
         "Call spending_wallet_status to see the spending address (never the key).",
-        "Open the TN10 faucet and paste that spending address (or send a little tKAS from your main wallet).",
+        "Open the TN10 faucet and paste that spending address (or send a little test KAS from your main wallet).",
         "Wait until balance shows, then verify.",
       ],
       faucetUrl: "https://faucet-tn10.kaspanet.io/",

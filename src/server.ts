@@ -15,6 +15,12 @@ import { confirmTransaction, explorerTxUrl } from "./l1/confirm.js";
 import { estimateFees } from "./l1/fee.js";
 import { setNodeConfig, getNodeConfig, defaultRestBases, applyNodeConfigFromEnv } from "./endpoints.js";
 import { createContractPage } from "./contract-page.js";
+import {
+  createCampaignPage,
+  getCampaignPage,
+  computeCampaignStatus,
+  upsertCampaignPledge,
+} from "./campaign-page.js";
 import { privateKeyToXonly } from "./l1/pure/sign.js";
 import { bytesToHex } from "./l1/script.js";
 import { backendFor } from "./backends/registry.js";
@@ -47,7 +53,8 @@ import { loadSilArtifact, entryOf, rebindLockbox, rebindSoftCapJar } from "./l1/
 import { deriveP2shAddress } from "./l1/p2sh.js";
 import { prepareFund, prepareSpend, KASWARE_HINT } from "./l1/prepare.js";
 import { L1_UNAUDITED_WARNING, kaspaWasmAvailable } from "./l1/kaspa-sdk.js";
-import { attachTapToApprove, utxoApiBaseFor, kaspaNetworkFor, contractLabelFor } from "./sign/attach.js";
+import { attachTapToApprove, utxoApiBaseFor, kaspaNetworkFor, contractLabelFor, getSignContext } from "./sign/attach.js";
+import { explorerFor } from "./sign/summary.js";
 import { compileSilverscript, isSilvercAvailable, silvercCompileHint } from "./l1/compile.js";
 import { coerceBytecode } from "./l1/artifact.js";
 import { resolveTemplateBytecodeForFund } from "./l1/resolve-template-bytecode.js";
@@ -138,8 +145,14 @@ export function createKaspaMcpServer(): McpServer {
     {
       instructions:
         `${SAFETY_BANNER}\n\n${L1_UNAUDITED_WARNING}\n\n${MCP_NETWORK_INSTRUCTIONS}\n\n` +
+        `CROWDFUND / FUNDRAISER / KICKSTARTER / "raise money" / all-or-nothing → ALWAYS call l1_aon_create_campaign ` +
+        `(NOT tipjar, NOT TipGoalJar/softcap, NOT silverscript_compile, NOT l1_derive_p2sh). ` +
+        `It uses a prebuilt artifact + rebind on the public connector — no local silverc. ` +
+        `Pass ownerAddress = the user's kaspatest: address, goalSompi (1 test KAS = 100000000), optional deadlineMs. ` +
+        `Return sharePage.url to the user. Track with campaign_status. After prepare, poll l1_check_session — do NOT ask the user for a txid.\n\n` +
+        `TipGoalJar (softcap) is NOT a crowdfund (no auto-refund). Only use when the user wants a tip/goal jar.\n\n` +
         `For everyday users who want chat-deploy without popups: guide them with self_host ` +
-        `(Cloudflare or local), then spending_wallet_create on THEIR copy. Shared demo is keyless.\n\n` +
+        `(Cloudflare Deploy button / dashboard first; Node only if they ask), then spending_wallet_create on THEIR copy. Shared demo is keyless.\n\n` +
         `${BUILD_TIPJAR_PUBLIC_GUIDE}\n\n` +
         `${WITHDRAW_PUBLIC_GUIDE}\n\n` +
         `${NEVER_MANUAL_SEND}\n\n` +
@@ -203,7 +216,7 @@ export function createKaspaMcpServer(): McpServer {
         `Theme: ${theme}`,
         "",
         "## Realistic paths today",
-        "- **Primary today:** Kaspa L1 SilverScript on testnet-10 (Toccata). Templates: TipJar, TimeoutVault, Escrow.",
+        "- **Primary today:** Kaspa L1 SilverScript on testnet-10 (Toccata). Crowdfund → l1_aon_create_campaign. Also TipJar, TimeoutVault, Escrow, TipGoalJar.",
         prefer === "evm"
           ? "- EVM secondary: Solidity on Kasplex/Igra when you need familiar Solidity tooling."
           : "- Prefer L1 covenants unless the user explicitly wants EVM.",
@@ -820,7 +833,7 @@ export function createKaspaMcpServer(): McpServer {
     "l1_derive_p2sh",
     {
       description:
-        "Derive Kaspa P2SH from redeem bytecode (pure-JS on Workers). For tipjar you MUST pass ownerAddress (or ownerPkhHex) so the address is owner-bound — never the demo template. UNAUDITED.",
+        "Derive P2SH for tipjar/vault/escrow (pass ownerAddress). For crowdfund/fundraiser/aon_pledge this tool REDIRECTS you to l1_aon_create_campaign — do not compile. TipGoalJar/softcap redirects to l1_prepare_fund.",
       inputSchema: {
         bytecodeHex: z.string().optional(),
         artifact: z.unknown().optional(),
@@ -833,6 +846,31 @@ export function createKaspaMcpServer(): McpServer {
     },
     async ({ bytecodeHex, artifact, templateId, contractName, ownerAddress, ownerPkhHex, network: nid }) => {
       try {
+        const tid = (templateId || "").toLowerCase();
+        if (
+          tid === "aon_pledge" ||
+          tid === "aon" ||
+          tid === "crowdfund" ||
+          tid === "fundraiser" ||
+          tid === "kickstarter"
+        ) {
+          return ok({
+            safety: SAFETY_BANNER,
+            redirect: "l1_aon_create_campaign",
+            tellUser:
+              "For crowdfund / fundraiser / all-or-nothing, call l1_aon_create_campaign with the user's ownerAddress + goal. It returns a share page — no compile needed on the public connector.",
+            next: 'l1_aon_create_campaign({ ownerAddress, goalSompi, deadlineMs?, network: "kaspa-l1-testnet-10" })',
+          });
+        }
+        if (tid === "softcap" || tid === "tipgoal" || tid === "tip_goal_jar") {
+          return ok({
+            safety: SAFETY_BANNER,
+            redirect: "l1_prepare_fund",
+            tellUser:
+              "TipGoalJar is not a crowdfund (no auto-refund). Use l1_prepare_fund with templateId softcap + ownerAddress + goalSompi + deadlineMs. For refundable crowdfund use l1_aon_create_campaign.",
+            next: 'l1_prepare_fund({ templateId: "softcap", fromAddress, ownerAddress, goalSompi, deadlineMs, amountSompi })',
+          });
+        }
         const network = getNetwork(nid);
         const resolvedBc = resolveTemplateBytecodeForFund({
           templateId,
@@ -845,7 +883,6 @@ export function createKaspaMcpServer(): McpServer {
         });
         return ok({
           safety: SAFETY_BANNER,
-          warning: L1_UNAUDITED_WARNING,
           networkId: network.id,
           address: resolvedBc.p2shAddress,
           p2shAddress: resolvedBc.p2shAddress,
@@ -858,6 +895,16 @@ export function createKaspaMcpServer(): McpServer {
           neverManualSend: NEVER_MANUAL_SEND,
         });
       } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (/aon_pledge|campaignTag|backer|goalSompi|deadline/i.test(msg)) {
+          return ok({
+            safety: SAFETY_BANNER,
+            redirect: "l1_aon_create_campaign",
+            tellUser:
+              "That looks like a crowdfund setup. Call l1_aon_create_campaign (prebuilt + rebind — no silverc on the public connector).",
+            detail: msg,
+          });
+        }
         return err(e);
       }
     },
@@ -1041,7 +1088,6 @@ export function createKaspaMcpServer(): McpServer {
         });
         return ok({
           safety: SAFETY_BANNER,
-          warning: L1_UNAUDITED_WARNING,
           ...prepared,
           p2shAddress,
           ownerAddress,
@@ -2050,7 +2096,7 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
     "l1_aon_create_campaign",
     {
       description:
-        "Create a refundable all-or-nothing crowdfund campaign (aon_pledge). Backers reclaim after the deadline if the goal is missed. Returns campaignTag + instructions to add pledges.",
+        "START A CROWDFUND / FUNDRAISER / KICKSTARTER / raise-money campaign (refundable all-or-nothing). Use this — not tipjar, TipGoalJar, softcap, or compile. Prebuilt artifact + rebind; works on the public connector with the users ownerAddress. Returns sharePage.url (live pledge tracker) + campaignTag. Goal in test KAS: 1 test KAS = 100000000 sompi units.",
       inputSchema: {
         ownerAddress: z.string().describe("Creator testnet/mainnet receive address"),
         goalSompi: z.union([z.string(), z.number()]).describe("Goal in sompi (1 test KAS = 100000000)"),
@@ -2070,14 +2116,23 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
           deadlineMs: a.deadlineMs,
           network: resolved.network.isTestnet ? "testnet-10" : "mainnet",
         });
+        const page = await createCampaignPage({
+          networkId: resolved.network.id,
+          ownerAddress: a.ownerAddress,
+          ownerPkhHex: c.ownerPkhHex,
+          campaignTagHex: c.campaignTagHex,
+          goalSompi: c.goalSompi,
+          deadlineMs: c.deadlineMs,
+          title: "All-or-nothing crowdfund",
+        });
         return ok({
           safety: SAFETY_BANNER,
-          warning: L1_UNAUDITED_WARNING,
           policy: AON_POLICY,
           campaign: c,
+          sharePage: { url: page.url, id: page.record.id },
           tellUser:
-            "Campaign created. Add each backer with l1_aon_add_pledge (unique fund address per backer). When total pledged ≥ goal, claim with a multi-input spend; if the deadline passes first, each backer reclaim.",
-          next: 'l1_aon_add_pledge({ campaignTagHex, ownerAddress, backerAddress, goalSompi, deadlineMs })',
+            "Campaign created. Share sharePage.url — backers can pledge one-tap from the page. Or add pledges with l1_aon_add_pledge. Track progress with campaign_status.",
+          next: "Share sharePage.url or l1_aon_add_pledge / campaign_status",
         });
       } catch (e) {
         return err(e);
@@ -2099,6 +2154,7 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
         amountSompi: z.union([z.string(), z.number()]).default("100000000"),
         network: z.string().optional(),
         fromAddress: z.string().optional().describe("Wallet funding the pledge; defaults to backerAddress"),
+        campaignPageId: z.string().optional().describe("Optional campaign share page id to register this pledge on the tracker"),
       },
     },
     async (a) => {
@@ -2116,6 +2172,13 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
         });
         c.campaignTagHex = a.campaignTagHex.replace(/^0x/, "").toLowerCase();
         const pledge = addAoNPledge(c, a.backerAddress);
+        if (a.campaignPageId) {
+          await upsertCampaignPledge(a.campaignPageId, {
+            backerAddress: a.backerAddress,
+            backerPkhHex: pledge.backerPkhHex,
+            p2shAddress: pledge.p2shAddress,
+          });
+        }
         const fromAddress = a.fromAddress?.trim() || a.backerAddress.trim();
         // Build fund link via existing prepare path
         const resolvedBc = resolveTemplateBytecodeForFund({
@@ -2171,6 +2234,77 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
           sharePage: { url: page.url, id: page.record.id },
           tellUser:
             "Ready — not on chain until funded. Open the one-tap link to fund this backer's pledge address. Do not say it is live yet.",
+        });
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+
+  server.registerTool(
+    "l1_check_session",
+    {
+      description:
+        "Poll a one-tap /sign session after prepare. Returns pending or submitted + txid/explorer when the user approved. Do NOT ask the user to paste a transaction ID — call this instead.",
+      inputSchema: {
+        sessionId: z.string().describe("tapToApprove.id from prepare_fund / prepare_spend / aon pledge"),
+      },
+    },
+    async (a) => {
+      try {
+        const ctx = getSignContext();
+        if (!ctx) return err("Sign session store unavailable");
+        const id = a.sessionId.replace(/^.*\//, "").trim();
+        const session = await ctx.store.get(id);
+        if (!session) {
+          return ok({
+            status: "unknown",
+            tellUser: "Session not found or expired. Ask them to open the approve link again if needed.",
+          });
+        }
+        const submitted = Boolean(session.submittedTxid);
+        return ok({
+          status: submitted ? "submitted" : "pending",
+          sessionId: session.id,
+          kind: session.kind,
+          submittedTxid: session.submittedTxid || null,
+          submittedAt: session.submittedAt || null,
+          explorerUrl: session.submittedTxid
+            ? explorerFor(session.networkId, session.submittedTxid)
+            : null,
+          expiresAt: session.expiresAt,
+          networkId: session.networkId,
+          meta: session.meta || {},
+          tellUser: submitted
+            ? `Confirmed on chain path — tx ${session.submittedTxid}`
+            : "Still waiting for wallet approval. Keep the approve link handy; poll again shortly.",
+        });
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "campaign_status",
+    {
+      description:
+        "Live all-or-nothing crowdfund status: raised vs goal, deadline countdown, status (open/goal_met/claimed/refunding), and pledge list from chain (REST failover). Pass campaignPageId from l1_aon_create_campaign sharePage.id.",
+      inputSchema: {
+        campaignPageId: z.string().describe("Campaign share page id"),
+      },
+    },
+    async (a) => {
+      try {
+        const rec = await getCampaignPage(a.campaignPageId);
+        if (!rec) return err("Campaign page not found or expired");
+        const status = await computeCampaignStatus(rec);
+        return ok({
+          safety: SAFETY_BANNER,
+          status,
+          sharePath: status.sharePath,
+          tellUser: `Raised ${status.raisedKas} / ${status.goalKas} · ${status.statusLabel} · ${status.pledgeCount} pledges`,
         });
       } catch (e) {
         return err(e);

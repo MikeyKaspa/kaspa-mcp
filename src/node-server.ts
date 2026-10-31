@@ -11,12 +11,17 @@ import {
   handleSignHttp,
   setSignContext,
 } from "./sign/index.js";
+import { setCampaignPageContext } from "./campaign-page.js";
+import { handleCampaignHttp } from "./campaign-http.js";
+import { setContractPageContext } from "./contract-page.js";
 
 const PORT = Number(process.env.PORT ?? 8787);
 const HOST = process.env.HOST ?? "127.0.0.1";
 const PUBLIC_BASE = process.env.SIGN_PUBLIC_BASE_URL || `http://${HOST}:${PORT}`;
 const signStore = createMemorySignStore();
 setSignContext({ store: signStore, publicBaseUrl: PUBLIC_BASE });
+setCampaignPageContext({ kv: null, publicBaseUrl: PUBLIC_BASE });
+setContractPageContext({ kv: null, publicBaseUrl: PUBLIC_BASE });
 
 async function handleMcp(req: Request): Promise<Response> {
   const server = createKaspaMcpServer();
@@ -58,7 +63,8 @@ const httpServer = createServer(async (req, res) => {
       url.pathname.startsWith("/kaspa-wasm/") ||
       url.pathname === "/sign/app.js" ||
       url.pathname === "/sign/app.css" ||
-      url.pathname === "/sign/l1-build.js"
+      url.pathname === "/sign/l1-build.js" ||
+      url.pathname === "/campaign/app.js"
     ) {
       const { readFileSync, existsSync } = await import("node:fs");
       const { join } = await import("node:path");
@@ -95,8 +101,14 @@ const httpServer = createServer(async (req, res) => {
         res.end(Buffer.from(await signRes.arrayBuffer()));
         return;
       }
+      const campRes = await handleCampaignHttp(request);
+      if (campRes) {
+        res.writeHead(campRes.status, Object.fromEntries(campRes.headers.entries()));
+        res.end(Buffer.from(await campRes.arrayBuffer()));
+        return;
+      }
       res.writeHead(404, { "content-type": "text/plain" });
-      res.end("Not found. MCP: POST /mcp · Approve: GET /sign/<id>");
+      res.end("Not found. MCP: POST /mcp · Approve: GET /sign/<id> · Campaign: GET /campaign/<id>");
       return;
     }
 
