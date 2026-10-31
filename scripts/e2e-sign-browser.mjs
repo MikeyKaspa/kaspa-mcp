@@ -50,7 +50,7 @@ async function tool(name, args) {
 
 async function waitUtxo(address, txid) {
   const api = "https://api-tn10.kaspa.org";
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 60; i++) {
     const res = await fetch(api + "/addresses/" + encodeURIComponent(address) + "/utxos");
     const list = await res.json();
     const hit = (Array.isArray(list) ? list : []).find(
@@ -120,7 +120,7 @@ async function approveInBrowser(page, tapUrl, privateKeyHex) {
         });
         await rpc.connect();
         try {
-          const res = await rpc.submitTransaction({ transaction: tx, allowOrphan: false });
+          const res = await rpc.submitTransaction({ transaction: tx, allowOrphan: true });
           return res.transactionId || String(res);
         } finally {
           try {
@@ -234,6 +234,8 @@ async function main() {
 
   for (const tmpl of templates) {
     console.log("===", tmpl.id, "===");
+    // BETWEEN_TEMPLATES settle so change UTXOs confirm
+    await new Promise((r) => setTimeout(r, 5000));
     const compiled = await tmpl.compile();
     const fund = await tool("l1_prepare_fund", {
       network: "kaspa-l1-testnet-10",
@@ -247,6 +249,8 @@ async function main() {
     console.log("fund tap", fund.tapToApprove.url);
     const fundRes = await approveInBrowser(page, fund.tapToApprove.url, privateKeyHex);
     console.log("fund tx", fundRes.txid);
+    // SETTLE_AFTER_FUND — avoid orphan rejects on immediate spend
+    await new Promise((r) => setTimeout(r, 8000));
     // Need P2SH address — from page summary or rebuild
     const api = await (await fetch(BASE + "/api/sign/" + fund.tapToApprove.id)).json();
     // Re-open built p2sh from fund result text or query page

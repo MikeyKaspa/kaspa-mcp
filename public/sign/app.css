@@ -129,3 +129,15 @@ a { color: var(--accent); }
   .actions { flex-direction: column; }
   button { width: 100%; }
 }
+
+.wallet-help {
+  background: var(--card);
+  border-radius: .75rem;
+  padding: .75rem .9rem;
+  margin: 0 0 1rem;
+  font-size: .82rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.wallet-help strong { color: var(--fg); }
+.wallet-help .help-block { margin: .55rem 0 0; }

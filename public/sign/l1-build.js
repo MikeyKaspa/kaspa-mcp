@@ -23,6 +23,8 @@ import init, {
   payToAddressScript,
   addressFromScriptPublicKey,
   SighashType,
+  RpcClient,
+  Encoding,
 } from "/kaspa-wasm/kaspa.js";
 
 let ready;
@@ -363,6 +365,10 @@ export function summarizeBuiltSafeJson(safeJson, opts) {
     );
   }
 
+  if (opts.destinationAddress) {
+    plainLines.push({ label: "Destination", value: opts.destinationAddress });
+    detailLines.push({ label: "Destination", value: opts.destinationAddress });
+  }
   detailLines.unshift({ label: "Network", value: opts.networkLabel });
   if (contract) detailLines.unshift({ label: "Contract", value: contract });
   if (opts.p2shAddress) detailLines.push({ label: "P2SH", value: opts.p2shAddress });
@@ -377,4 +383,24 @@ export function summarizeBuiltSafeJson(safeJson, opts) {
     contractName: contract || null,
     primaryAction: isSpend && /tipjar/i.test(contract) ? "Withdraw" : isSpend ? "Approve spend" : "Approve",
   };
+}
+
+
+/** Broadcast a fully signed SafeJSON via public wRPC (for wallets without pushTx, e.g. Kastle). */
+export async function submitSignedTx(safeJson, kaspaNetwork) {
+  await ensureKaspa();
+  const net = kaspaNetwork || "testnet-10";
+  const url =
+    net === "mainnet"
+      ? "wss://protonet.aspectron.org/kaspa/mainnet/wrpc/borsh"
+      : "wss://electron-10.kaspa.blue/kaspa/testnet-10/wrpc/borsh";
+  const tx = Transaction.deserializeFromSafeJSON(safeJson);
+  const rpc = new RpcClient({ url, encoding: Encoding.Borsh, networkId: net });
+  await rpc.connect();
+  try {
+    const res = await rpc.submitTransaction({ transaction: tx, allowOrphan: false });
+    return res.transactionId || String(res);
+  } finally {
+    try { await rpc.disconnect(); } catch (_) {}
+  }
 }

@@ -1,0 +1,9 @@
+network=kaspa-l1-testnet-10
+mode=browser_build
+fundTx=3d734dccbb1343101704846100825e64e95c9da120a84db58f32b53a95d74d25
+p2sh=kaspatest:ppjqe2ua2gedvgyfgaxrg0zyjj2q08q8sx6lnjmrkew4c08pnxdr7yspdrc8y
+owner=kaspatest:qq8x4g8see6sxhe46zmuwg28cgjauw9csxkxug2gynpfsuszp7kk78yvl9r00
+tap=https://kaspa-mcp.kaspa-mcp.workers.dev/sign/6c711d63532dbba973ede6ae79ec270b
+created=Oct 30, 2026, 5:12:42 PM America/Phoenix
+expires=Oct 30, 2026, 5:27:42 PM America/Phoenix
+headline=Withdraw from Tip Jar
