@@ -8,11 +8,13 @@
   var barFill = document.getElementById("barFill");
   var pctLabel = document.getElementById("pctLabel");
   var countdown = document.getElementById("countdown");
+  var lockLine = document.getElementById("lockLine");
   var networkLabel = document.getElementById("networkLabel");
   var pledgeList = document.getElementById("pledgeList");
   var pledgeCount = document.getElementById("pledgeCount");
   var amtInput = document.getElementById("amt");
   var btnPledge = document.getElementById("btnPledge");
+  var btnClaim = document.getElementById("btnClaim");
   var btnReclaim = document.getElementById("btnReclaim");
   var pledgeStatus = document.getElementById("pledgeStatus");
   var walletCue = document.getElementById("walletCue");
@@ -44,14 +46,22 @@
   }
 
   function formatCountdown(sec) {
-    if (sec == null) return "Deadline passed";
+    if (sec == null) return "";
     var d = Math.floor(sec / 86400);
     var h = Math.floor((sec % 86400) / 3600);
     var m = Math.floor((sec % 3600) / 60);
     var s = sec % 60;
-    if (d > 0) return d + "d " + h + "h left";
-    if (h > 0) return h + "h " + m + "m left";
-    return m + "m " + s + "s left";
+    if (d > 0) return d + "d " + h + "h";
+    if (h > 0) return h + "h " + m + "m";
+    return m + "m " + s + "s";
+  }
+
+  function formatWhen(isoOrMs) {
+    try {
+      return new Date(isoOrMs).toLocaleString();
+    } catch (e) {
+      return String(isoOrMs);
+    }
   }
 
   function render(st) {
@@ -65,7 +75,31 @@
     goalLabel.textContent = "goal " + st.goalKas + " " + unit;
     barFill.style.width = Math.min(100, st.progressPct || 0) + "%";
     pctLabel.textContent = (Math.round((st.progressPct || 0) * 10) / 10) + "% funded";
-    countdown.textContent = formatCountdown(st.secondsRemaining);
+
+    var cd = "";
+    if (st.secondsRemaining != null) {
+      cd = "Locked until deadline · " + formatCountdown(st.secondsRemaining) + " left";
+    } else if (st.secondsUntilRefunds != null) {
+      cd = "Grace · refunds in " + formatCountdown(st.secondsUntilRefunds);
+    } else if (st.status === "refunding") {
+      cd = "Refunds open";
+    } else if (st.status === "claimed") {
+      cd = "Claimed";
+    } else if (st.status === "goal_met") {
+      cd = "Goal met — owner can claim now";
+    }
+    countdown.textContent = cd;
+
+    if (lockLine) {
+      var deadlineIso = st.deadlineIso || meta.deadlineMs;
+      var refundIso = st.refundOpensAtIso || meta.refundOpensAtMs;
+      lockLine.textContent =
+        "Locked until " +
+        formatWhen(deadlineIso) +
+        " · Refunds open " +
+        formatWhen(refundIso);
+    }
+
     pledgeCount.textContent = (st.pledgeCount || 0) + " backer" + (st.pledgeCount === 1 ? "" : "s");
     var list = st.pledges || [];
     if (!list.length) {
@@ -73,6 +107,7 @@
     } else {
       pledgeList.innerHTML = list
         .map(function (p) {
+          var state = p.hasUtxo ? "Active" : "Spent / empty";
           var amt = p.hasUtxo ? p.amountKas + " " + unit : "0 " + unit;
           var when = p.time ? new Date(p.time).toLocaleString() : "";
           var link = p.explorerUrl
@@ -86,7 +121,8 @@
             escapeHtml(p.backerShort) +
             "</span></div>" +
             '<div class="row muted"><span>' +
-            escapeHtml(when) +
+            escapeHtml(state) +
+            (when ? " · " + escapeHtml(when) : "") +
             "</span>" +
             link +
             "</div></div>"
@@ -94,20 +130,40 @@
         })
         .join("");
     }
-    // Reclaim visible after deadline if this wallet has a pledge with UTXO
+
+    var isOwner =
+      connectedAddress &&
+      meta.ownerAddress &&
+      connectedAddress.toLowerCase() === String(meta.ownerAddress).toLowerCase();
+    var showClaim = !!(st.canClaim && (isOwner || !connectedAddress));
+    if (btnClaim) btnClaim.hidden = !st.canClaim;
+    if (btnClaim && isOwner) btnClaim.hidden = !st.canClaim;
+    if (btnClaim && connectedAddress && !isOwner) btnClaim.hidden = true;
+
     var showReclaim = false;
-    if (connectedAddress && st.status === "refunding") {
+    if (connectedAddress && st.canReclaim) {
       for (var i = 0; i < list.length; i++) {
-        if (
-          list[i].backerAddress === connectedAddress &&
-          list[i].hasUtxo
-        ) {
+        if (list[i].backerAddress === connectedAddress && list[i].hasUtxo) {
+          showReclaim = true;
+          break;
+        }
+      }
+    } else if (st.status === "refunding" && connectedAddress) {
+      for (var j = 0; j < list.length; j++) {
+        if (list[j].backerAddress === connectedAddress && list[j].hasUtxo) {
           showReclaim = true;
           break;
         }
       }
     }
     btnReclaim.hidden = !showReclaim;
+
+    // Hide pledge after deadline
+    if (st.secondsRemaining == null && st.status !== "open" && st.status !== "goal_met") {
+      btnPledge.disabled = true;
+    } else {
+      btnPledge.disabled = false;
+    }
   }
 
   function refresh() {
@@ -124,13 +180,19 @@
 
   function tickCountdown() {
     if (!status) return;
-    if (status.secondsRemaining == null) {
-      countdown.textContent = "Deadline passed";
-      return;
+    render(status);
+    if (status.secondsRemaining != null) {
+      status.secondsRemaining = Math.max(
+        0,
+        Math.floor((Number(status.deadlineMs) - Date.now()) / 1000),
+      );
     }
-    var left = Math.max(0, Math.floor((Number(status.deadlineMs) - Date.now()) / 1000));
-    status.secondsRemaining = left;
-    countdown.textContent = formatCountdown(left);
+    if (status.secondsUntilRefunds != null && status.refundOpensAtMs) {
+      status.secondsUntilRefunds = Math.max(
+        0,
+        Math.floor((Number(status.refundOpensAtMs) - Date.now()) / 1000),
+      );
+    }
   }
 
   function connectWallet() {
@@ -147,6 +209,7 @@
         connectedAddress = accounts && accounts[0];
         showCue(false);
         setStatus("Connected: " + connectedAddress, "ok");
+        if (status) render(status);
         return connectedAddress;
       });
     }
@@ -158,11 +221,12 @@
             connectedAddress = (accounts && accounts[0]) || null;
             showCue(false);
             setStatus(connectedAddress ? "Connected: " + connectedAddress : "Connected Kastle", "ok");
+            if (status) render(status);
             return connectedAddress;
           });
         }
         showCue(false);
-        setStatus("Connected Kastle — enter is not needed; server uses address from wallet on sign page", "ok");
+        setStatus("Connected Kastle", "ok");
         return null;
       });
     }
@@ -175,6 +239,7 @@
         connectedAddress = accounts && accounts[0];
         showCue(false);
         setStatus("Connected: " + connectedAddress, "ok");
+        if (status) render(status);
         return connectedAddress;
       });
     }
@@ -197,10 +262,6 @@
     }
     return connectWallet()
       .then(function (addr) {
-        if (!addr) {
-          // Kastle without getAccounts — still open sign flow; server needs address
-          setStatus("Open the approve page and connect there", "ok");
-        }
         showCue(true);
         setStatus("Preparing your pledge…");
         return fetch("/api/campaign/" + id + "/pledge", {
@@ -218,6 +279,34 @@
           showCue(false);
           if (body.tapToApprove && body.tapToApprove.url) {
             setStatus("Approve in wallet…", "ok");
+            window.location.href = body.tapToApprove.url;
+            return;
+          }
+          throw new Error("Missing approve link");
+        });
+      })
+      .catch(function (e) {
+        showCue(false);
+        setStatus((e && e.message) || String(e), "err");
+      });
+  }
+
+  function startClaim() {
+    return connectWallet()
+      .then(function (addr) {
+        showCue(true);
+        setStatus("Preparing owner claim…");
+        return fetch("/api/campaign/" + id + "/claim", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ownerAddress: addr || meta.ownerAddress }),
+        });
+      })
+      .then(function (r) {
+        return r.json().then(function (body) {
+          if (!r.ok || body.error) throw new Error(body.error || "HTTP " + r.status);
+          showCue(false);
+          if (body.tapToApprove && body.tapToApprove.url) {
             window.location.href = body.tapToApprove.url;
             return;
           }
@@ -262,6 +351,11 @@
   btnPledge.addEventListener("click", function () {
     startPledge();
   });
+  if (btnClaim) {
+    btnClaim.addEventListener("click", function () {
+      startClaim();
+    });
+  }
   btnReclaim.addEventListener("click", function () {
     startReclaim();
   });

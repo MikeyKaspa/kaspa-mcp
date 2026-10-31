@@ -1,15 +1,19 @@
 pragma silverscript ^0.1.0;
 
-// All-or-nothing per-backer pledge. Sibling inputs must share this redeem
-// template with only backerPkh varying (prefix/suffix via scriptSig substr).
-// redeemLen=1088 backerOff=916 — must match silverc output.
+// All-or-nothing per-backer pledge (Stag Hunt style).
+// Sibling inputs must share this redeem template with only backerPkh varying
+// (prefix/suffix via scriptSig substr). redeemLen/backerOff — must match silverc.
+//
+// claim: owner when sibling-checked total >= goal (anytime — no deadline wait).
+// reclaim: permissionless after refundOpensAt; output pinned to backer SPK.
+// Application sets refundOpensAt = campaignDeadline + grace (default 3d).
 // fee is a MINIMUM — output may pay more to cover compute mass.
 contract AoNPledge(
     byte[32] ownerPkh,
     byte[32] backerPkh,
     byte[32] campaignTag,
     int goalSompi,
-    temporal deadline
+    temporal refundOpensAt
 ) {
     entry claim(pubkey pk, sig s) {
         require(blake2b(byte[](pk)) == ownerPkh);
@@ -18,9 +22,9 @@ contract AoNPledge(
 
         int active = this.activeInputIndex;
         int activeLen = OpTxInputScriptSigLen(active);
-        int redeemLen = 1088;
-        int backerOff = 916;
-        int backerEnd = 948;
+        int redeemLen = 1075;
+        int backerOff = 910;
+        int backerEnd = 942;
         require(activeLen >= redeemLen);
         byte[] pref = OpTxInputScriptSigSubstr(active, activeLen - redeemLen, activeLen - redeemLen + backerOff);
         byte[] suf = OpTxInputScriptSigSubstr(active, activeLen - redeemLen + backerEnd, activeLen);
@@ -43,12 +47,13 @@ contract AoNPledge(
         require(tx.outputs.length == 1);
     }
 
-    entry reclaim(pubkey pk, sig s) {
-        require(blake2b(byte[](pk)) == backerPkh);
-        require(checkSig(s, pk));
-        require(tx.time >= deadline);
+    // Permissionless after refundOpensAt: anyone may broadcast; coins can only
+    // land at backer's P2PK (pubkey must hash to backerPkh).
+    entry reclaim(pubkey backerPk) {
+        require(blake2b(byte[](backerPk)) == backerPkh);
+        require(tx.time >= refundOpensAt);
         require(campaignTag == campaignTag);
-        byte[36] toBacker = new ScriptPubKeyP2PK(pk);
+        byte[36] toBacker = new ScriptPubKeyP2PK(backerPk);
         require(tx.outputs[0].scriptPubKey == byte[](toBacker));
         int minFee = 300000;
         int val = tx.inputs[this.activeInputIndex].value;

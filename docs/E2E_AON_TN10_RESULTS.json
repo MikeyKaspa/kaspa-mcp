@@ -1,59 +1,50 @@
 {
   "network": "testnet-10",
-  "startedAt": "2026-10-31T02:43:04.249Z",
+  "startedAt": "2026-10-31T03:26:11.005Z",
   "cases": {
-    "goalMetClaim": {
+    "goalMetClaimBeforeDeadline": {
       "ok": true,
       "goalSompi": "300000000",
+      "deadlineMs": 1794021971005,
+      "refundOpensAtMs": 1794281171005,
       "fundTxids": [
-        "3094dd99539e0a0c0fa8f5b97c74667f0c4e6c478d49eb7475b48511c9687684",
-        "5d095f12f3ac74c86f3fe25c122dc59e9efe8632b456140e0fa90b9a8f3cd323",
-        "49d6df38bada693760f9fba0b27eb9940738dfb664b0da6a424e4f4384287045"
+        "3e328f829736aacb9217d2f7051b212c194c05f32fa08a4057c095e583086ca6",
+        "3c1348d36a636e124998b46cce4d07d991ec0a25fb56f7414f25336cf596a040",
+        "ceb2948990447874dec49365a62bc076ea403515da09090553127cf83f1804f8"
       ],
       "fundExplorers": [
-        "https://tn10.kaspa.stream/transactions/3094dd99539e0a0c0fa8f5b97c74667f0c4e6c478d49eb7475b48511c9687684",
-        "https://tn10.kaspa.stream/transactions/5d095f12f3ac74c86f3fe25c122dc59e9efe8632b456140e0fa90b9a8f3cd323",
-        "https://tn10.kaspa.stream/transactions/49d6df38bada693760f9fba0b27eb9940738dfb664b0da6a424e4f4384287045"
+        "https://tn10.kaspa.stream/transactions/3e328f829736aacb9217d2f7051b212c194c05f32fa08a4057c095e583086ca6",
+        "https://tn10.kaspa.stream/transactions/3c1348d36a636e124998b46cce4d07d991ec0a25fb56f7414f25336cf596a040",
+        "https://tn10.kaspa.stream/transactions/ceb2948990447874dec49365a62bc076ea403515da09090553127cf83f1804f8"
       ],
-      "claimTxid": "522766b4a75d7a1c91821e67cad977f43e95c846c2dfc04e88919de6d221f7d4",
-      "claimExplorer": "https://tn10.kaspa.stream/transactions/522766b4a75d7a1c91821e67cad977f43e95c846c2dfc04e88919de6d221f7d4"
+      "claimTxid": "06cc9ba5d3292dd2631a93fcc145bbb9cfe6e34ddcd2bc4e9b69b92602171a22",
+      "claimExplorer": "https://tn10.kaspa.stream/transactions/06cc9ba5d3292dd2631a93fcc145bbb9cfe6e34ddcd2bc4e9b69b92602171a22"
     },
     "adversarialInflator": {
       "ok": true,
-      "realFundTxid": "c485f8a54a6cc48866ed79f28b100d9e944f6635e0f61375b8eff0028bf0f4a2",
-      "fakeFundTxid": "8ef364ec9bc697e287b6c7d25d0e4f4820de87e0f08b38b1710b10c803631328",
-      "realExplorer": "https://tn10.kaspa.stream/transactions/c485f8a54a6cc48866ed79f28b100d9e944f6635e0f61375b8eff0028bf0f4a2",
-      "fakeExplorer": "https://tn10.kaspa.stream/transactions/8ef364ec9bc697e287b6c7d25d0e4f4820de87e0f08b38b1710b10c803631328",
+      "realFundTxid": "626feb996a90aeab5748e9ad65bdc8de085dcd98f98435f51ddc8585b4627de3",
+      "fakeFundTxid": "95cedcd06815784ea9835f748dda7702ee5a8db6937487ddb314cf94f8255c54",
+      "realExplorer": "https://tn10.kaspa.stream/transactions/626feb996a90aeab5748e9ad65bdc8de085dcd98f98435f51ddc8585b4627de3",
+      "fakeExplorer": "https://tn10.kaspa.stream/transactions/95cedcd06815784ea9835f748dda7702ee5a8db6937487ddb314cf94f8255c54",
       "attackTxid": null,
-      "attackError": "RPC Server (remote error) -> Rejected transaction 6ad030cfd53f4b644dbe5a59fd8d12d008f9390f9d49f8cb413eb75280d370ba: failed to verify the signature script: script ran, but verification failed",
-      "note": "Creator co-spends foreign P2SH to inflate sum; sibling redeem prefix/suffix must reject"
+      "attackError": "RPC Server (remote error) -> Rejected transaction c155446a493e59308c326dec5818ec456986f2ac6bd08da367796120cfa076d1: failed to verify the signature script: script ran, but verification failed"
     },
-    "goalMissedReclaim": {
+    "goalMissedReclaimGrace": {
       "ok": true,
       "goalSompi": "1000000000",
-      "deadlineMs": 1792809791784,
-      "backers": [
-        {
-          "fundTxid": "afdb73e3daa36b93ff28c4973cc84324b446d0d11e4c93de750bf1e30ac945ce",
-          "reclaimTxid": "523dbcc5e003736a653eb646da82f7273f2727db8ac94586aa1a7024b6babf20",
-          "fundExplorer": "https://tn10.kaspa.stream/transactions/afdb73e3daa36b93ff28c4973cc84324b446d0d11e4c93de750bf1e30ac945ce",
-          "reclaimExplorer": "https://tn10.kaspa.stream/transactions/523dbcc5e003736a653eb646da82f7273f2727db8ac94586aa1a7024b6babf20"
-        },
-        {
-          "fundTxid": "3a0b2f21b55d4268676bbb188c51909a4dfd61891b7d562e4822abd479ade417",
-          "reclaimTxid": "419ee077c812031df93b4001cf87321195277066a3d976a3cc252838267598ce",
-          "fundExplorer": "https://tn10.kaspa.stream/transactions/3a0b2f21b55d4268676bbb188c51909a4dfd61891b7d562e4822abd479ade417",
-          "reclaimExplorer": "https://tn10.kaspa.stream/transactions/419ee077c812031df93b4001cf87321195277066a3d976a3cc252838267598ce"
-        },
-        {
-          "fundTxid": "5aa6e3d9b70895a2e8eef1415c271a859a9b8164a5a0ed46c38de1d2a626c3a1",
-          "reclaimTxid": "3279c271bc7fe2246ff57de6886360b7cd13aa7794dffd05f73db674725ff8e3",
-          "fundExplorer": "https://tn10.kaspa.stream/transactions/5aa6e3d9b70895a2e8eef1415c271a859a9b8164a5a0ed46c38de1d2a626c3a1",
-          "reclaimExplorer": "https://tn10.kaspa.stream/transactions/3279c271bc7fe2246ff57de6886360b7cd13aa7794dffd05f73db674725ff8e3"
-        }
-      ]
+      "earlyFundTxid": "57d12403e2231431733435383f84afad0590bf565caf8b0a8d234016139e81db",
+      "earlyFundExplorer": "https://tn10.kaspa.stream/transactions/57d12403e2231431733435383f84afad0590bf565caf8b0a8d234016139e81db",
+      "earlyRejected": true,
+      "earlyError": "RPC Server (remote error) -> Rejected transaction 57a81b6f6d41b98e649d18c24f7a184171ba1d2ea779347d442b171dcd9b9d24: transaction input #0 is not finalized",
+      "earlyTxid": null,
+      "refundOpensAtPastMs": 1792812379527,
+      "lateFundTxid": "c4705a075c1883f6ee4d50829475b61df76826eb02a5e20582e1b8773f0e6801",
+      "lateFundExplorer": "https://tn10.kaspa.stream/transactions/c4705a075c1883f6ee4d50829475b61df76826eb02a5e20582e1b8773f0e6801",
+      "reclaimTxid": "d49ddabcb9cc6d3898cc9893ba81f17744017584f0e6dc8d490c24c65335eb95",
+      "reclaimExplorer": "https://tn10.kaspa.stream/transactions/d49ddabcb9cc6d3898cc9893ba81f17744017584f0e6dc8d490c24c65335eb95"
     }
   },
-  "finishedAt": "2026-10-31T02:43:17.196Z",
+  "style": "stag-hunt-grace",
+  "finishedAt": "2026-10-31T03:26:21.597Z",
   "allGreen": true
 }

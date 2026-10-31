@@ -1,10 +1,10 @@
 /**
- * AoN crowdfund campaign share page: live pledge tracker + one-tap pledge/reclaim.
- * authorized_by: pt267u — no warning flags; track pledges from chain via REST failover.
+ * AoN crowdfund campaign share page: live pledge tracker + one-tap pledge/claim/reclaim.
+ * authorized_by: pt277u — Stag Hunt grace; no warning flags; track pledges from chain via REST failover.
  */
 import { newSignId, type KvLike } from "./sign/store.js";
 import { fetchRestJson, type NetworkId } from "./endpoints.js";
-import { buildAoNPledgeAddress } from "./crowdfund.js";
+import { buildAoNPledgeAddress, AON_DEFAULT_GRACE_MS, computeRefundOpensAtMs } from "./crowdfund.js";
 import { ownerPkhFromP2pkAddress } from "./l1/owner-pkh.js";
 import { utxoApiBaseFor, kaspaNetworkFor } from "./sign/attach.js";
 
@@ -32,6 +32,10 @@ export type CampaignPageRecord = {
   campaignTagHex: string;
   goalSompi: string;
   deadlineMs: string;
+  /** Grace after deadline before refunds open (default 3d). */
+  graceMs: string;
+  /** On-chain temporal = deadline + grace. */
+  refundOpensAtMs: string;
   title: string;
   pledges: CampaignPledgeRecord[];
   /** Peak raised observed (helps distinguish claimed vs never-funded) */
@@ -59,13 +63,19 @@ export type CampaignStatus = {
   goalKas: string;
   deadlineMs: string;
   deadlineIso: string;
+  graceMs: string;
+  refundOpensAtMs: string;
+  refundOpensAtIso: string;
   nowMs: number;
   raisedSompi: string;
   raisedKas: string;
   progressPct: number;
-  status: "open" | "goal_met" | "claimed" | "refunding";
+  status: "open" | "goal_met" | "grace" | "claimed" | "refunding";
   statusLabel: string;
   secondsRemaining: number | null;
+  secondsUntilRefunds: number | null;
+  canClaim: boolean;
+  canReclaim: boolean;
   pledges: CampaignPledgeLive[];
   pledgeCount: number;
   sharePath: string;
@@ -130,11 +140,16 @@ export async function createCampaignPage(input: {
   campaignTagHex: string;
   goalSompi: string | number | bigint;
   deadlineMs: string | number | bigint;
+  graceMs?: string | number | bigint;
+  refundOpensAtMs?: string | number | bigint;
   title?: string;
   pledges?: CampaignPledgeRecord[];
 }): Promise<{ record: CampaignPageRecord; url: string }> {
   const id = newSignId();
   const ownerPkhHex = input.ownerPkhHex || ownerPkhFromP2pkAddress(input.ownerAddress);
+  const deadlineMs = String(input.deadlineMs);
+  const graceMs = String(input.graceMs ?? AON_DEFAULT_GRACE_MS);
+  const refundOpensAtMs = String(input.refundOpensAtMs ?? computeRefundOpensAtMs(deadlineMs, graceMs));
   const record: CampaignPageRecord = {
     id,
     kind: "aon_campaign",
@@ -145,7 +160,9 @@ export async function createCampaignPage(input: {
     ownerPkhHex,
     campaignTagHex: input.campaignTagHex.replace(/^0x/, "").toLowerCase(),
     goalSompi: String(input.goalSompi),
-    deadlineMs: String(input.deadlineMs),
+    deadlineMs,
+    graceMs,
+    refundOpensAtMs,
     title: input.title || "All-or-nothing crowdfund",
     pledges: input.pledges || [],
     peakRaisedSompi: "0",
@@ -164,6 +181,8 @@ export async function getCampaignPage(id: string): Promise<CampaignPageRecord | 
   try {
     const r = JSON.parse(raw) as CampaignPageRecord;
     if (Date.now() > r.expiresAt) return null;
+    if (!r.graceMs) r.graceMs = String(AON_DEFAULT_GRACE_MS);
+    if (!r.refundOpensAtMs) r.refundOpensAtMs = computeRefundOpensAtMs(r.deadlineMs, r.graceMs);
     mem().set(id, r);
     return r;
   } catch {
@@ -285,33 +304,40 @@ export async function computeCampaignStatus(rec: CampaignPageRecord, nowMs = Dat
   }
   if (dirty) await persist(rec);
 
+  const graceMs = Number(rec.graceMs ?? AON_DEFAULT_GRACE_MS);
+  const refundOpensAt = Number(rec.refundOpensAtMs ?? computeRefundOpensAtMs(deadline, graceMs));
   const pastDeadline = nowMs >= deadline;
+  const refundsOpen = nowMs >= refundOpensAt;
   const peakNow = BigInt(rec.peakRaisedSompi || "0");
   let status: CampaignStatus["status"];
   let statusLabel: string;
-  if (!pastDeadline) {
-    if (raised >= goal) {
-      status = "goal_met";
-      statusLabel = "Goal met";
-    } else {
-      status = "open";
-      statusLabel = "Open";
-    }
-  } else if (raised > 0n) {
+  if (raised >= goal && raised > 0n) {
+    status = "goal_met";
+    statusLabel = "Goal met — claim available";
+  } else if (!pastDeadline) {
+    status = "open";
+    statusLabel = "Open";
+  } else if (raised > 0n && !refundsOpen) {
+    status = "grace";
+    statusLabel = "Grace — owner should claim";
+  } else if (raised > 0n && refundsOpen) {
     status = "refunding";
-    statusLabel = "Refunding";
+    statusLabel = "Refunds open";
   } else if (peakNow >= goal) {
     status = "claimed";
     statusLabel = "Claimed";
   } else {
     status = "refunding";
-    statusLabel = "Refunding";
+    statusLabel = "Refunds open";
   }
 
   const pct =
     goal === 0n ? 0 : Number((raised * 10000n) / goal) / 100;
   const progressPct = Math.min(100, Math.max(0, pct));
   const secondsRemaining = pastDeadline ? null : Math.max(0, Math.floor((deadline - nowMs) / 1000));
+  const secondsUntilRefunds = refundsOpen ? null : Math.max(0, Math.floor((refundOpensAt - nowMs) / 1000));
+  const canClaim = raised >= goal && raised > 0n;
+  const canReclaim = refundsOpen && raised > 0n && raised < goal;
 
   return {
     campaignId: rec.id,
@@ -322,6 +348,9 @@ export async function computeCampaignStatus(rec: CampaignPageRecord, nowMs = Dat
     goalKas: sompiToKas(goal),
     deadlineMs: rec.deadlineMs,
     deadlineIso: new Date(deadline).toISOString(),
+    graceMs: String(graceMs),
+    refundOpensAtMs: String(refundOpensAt),
+    refundOpensAtIso: new Date(refundOpensAt).toISOString(),
     nowMs,
     raisedSompi: String(raised),
     raisedKas: sompiToKas(raised),
@@ -329,6 +358,9 @@ export async function computeCampaignStatus(rec: CampaignPageRecord, nowMs = Dat
     status,
     statusLabel,
     secondsRemaining,
+    secondsUntilRefunds,
+    canClaim,
+    canReclaim,
     pledges: live.sort((a, b) => {
       const ta = a.time ? Date.parse(a.time) : 0;
       const tb = b.time ? Date.parse(b.time) : 0;
@@ -345,12 +377,13 @@ export function derivePledgeForBacker(
   backerAddress: string,
 ): { p2shAddress: string; bytecodeHex: string; backerPkhHex: string } {
   const backerPkhHex = ownerPkhFromP2pkAddress(backerAddress);
+  const refundOpensAtMs = rec.refundOpensAtMs || computeRefundOpensAtMs(rec.deadlineMs, rec.graceMs ?? AON_DEFAULT_GRACE_MS);
   const built = buildAoNPledgeAddress({
     ownerPkhHex: rec.ownerPkhHex,
     backerPkhHex,
     campaignTagHex: rec.campaignTagHex,
     goalSompi: rec.goalSompi,
-    deadlineMs: rec.deadlineMs,
+    refundOpensAtMs,
     network: netOf(rec.networkId),
   });
   return { ...built, backerPkhHex };
@@ -380,6 +413,8 @@ export function campaignFundBuild(rec: CampaignPageRecord, backerAddress: string
       campaignTagHex: rec.campaignTagHex,
       goalSompi: rec.goalSompi,
       deadlineMs: rec.deadlineMs,
+      graceMs: rec.graceMs,
+      refundOpensAtMs: rec.refundOpensAtMs,
       backerAddress: backerAddress.trim(),
       sharePageUrl: `${publicBase || ""}/campaign/${rec.id}`,
     },
@@ -409,6 +444,8 @@ h1{font-size:1.35rem;margin:.4rem 0 .6rem}
 .bar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,#2dd4bf,var(--accent));border-radius:999px;transition:width .4s ease}
 .badge{display:inline-block;padding:.2rem .55rem;border-radius:999px;font-size:.75rem;font-weight:600;background:#1a2838;color:var(--accent);text-transform:uppercase;letter-spacing:.04em}
 .badge.goal_met{background:#143528;color:var(--ok)}
+.badge.goal_met{background:#143528;color:var(--ok)}
+.badge.grace{background:#2a2412;color:var(--warn)}
 .badge.refunding{background:#3a2a12;color:var(--warn)}
 .badge.claimed{background:#1a2838;color:#9db0c7}
 .pledge{padding:.7rem 0;border-top:1px solid #243041}
@@ -438,6 +475,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
     <div class="row"><span class="big" id="raisedLabel">—</span><span class="muted" id="goalLabel">goal —</span></div>
     <div class="bar" aria-hidden="true"><i id="barFill"></i></div>
     <div class="row muted"><span id="pctLabel"></span><span id="countdown"></span></div>
+    <p class="muted" style="margin:.55rem 0 0;font-size:.8rem" id="lockLine"></p>
   </div>
   <div class="card">
     <h2 style="font-size:1rem;margin:0 0 .6rem">Pledge</h2>
@@ -447,9 +485,10 @@ button:disabled{opacity:.45;cursor:not-allowed}
     <div class="cue" id="walletCue">Check your wallet popup…</div>
     <div class="actions">
       <button type="button" class="primary" id="btnPledge">Connect &amp; pledge</button>
+      <button type="button" class="primary" id="btnClaim" hidden>Claim (owner)</button>
       <button type="button" class="secondary" id="btnReclaim" hidden>Reclaim my pledge</button>
     </div>
-    <p class="muted" style="margin:.7rem 0 0;font-size:.8rem">Backer = your connected wallet. Refundable after the deadline if the goal is missed.</p>
+    <p class="muted" style="margin:.7rem 0 0;font-size:.8rem">Pledges stay locked until the deadline. If the goal is missed, refunds open after a grace period — anyone can reclaim to the backer address (no host key).</p>
   </div>
   <div class="card">
     <div class="row"><h2 style="font-size:1rem;margin:0">Pledges</h2><span class="muted" id="pledgeCount"></span></div>
@@ -463,6 +502,9 @@ window.__CAMPAIGN_META__=${JSON.stringify({
   networkId: rec.networkId,
   goalSompi: rec.goalSompi,
   deadlineMs: rec.deadlineMs,
+  graceMs: rec.graceMs,
+  refundOpensAtMs: rec.refundOpensAtMs,
+  ownerAddress: rec.ownerAddress,
   campaignTagHex: rec.campaignTagHex,
   unit,
 })};

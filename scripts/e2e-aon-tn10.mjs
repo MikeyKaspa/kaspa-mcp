@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * AoNPledge TN10 e2e:
- *  A) 3 backers, goal met → creator claim
- *  B) attack: real pledges below goal + creator foreign P2SH → claim MUST fail
- *  C) goal missed, deadline past → each backer reclaim
+ * AoNPledge TN10 e2e (Stag Hunt style):
+ *  A) goal met → owner claim BEFORE deadline
+ *  B) attack: foreign P2SH inflate → claim MUST fail
+ *  C) goal missed → reclaim rejected before grace; succeeds after short grace
  */
 import kaspa from "kaspa";
 import { blake2b } from "@noble/hashes/blake2.js";
@@ -22,7 +22,7 @@ const OUT = join(ROOT, "docs/E2E_AON_TN10_RESULTS.json");
 const FEE = 3500000n;
 const PLEDGE = kaspa.kaspaToSompi("1");
 const EX = (txid) => `https://tn10.kaspa.stream/transactions/${txid}`;
-const ONLY = process.env.ONLY || ""; // A | B | C | ""
+const ONLY = process.env.ONLY || "";
 
 function loadEnvKey() {
   const env = Object.fromEntries(
@@ -60,7 +60,7 @@ function xonlyOf(priv) {
   return Buffer.from(priv.toPublicKey().toXOnlyPublicKey().toString(), "hex");
 }
 
-function compileAoN({ ownerPkh, backerPkh, tag, goal, deadline }) {
+function compileAoN({ ownerPkh, backerPkh, tag, goal, refundOpensAt }) {
   const argsPath = "/tmp/e2e-aon-ctor.json";
   writeFileSync(
     argsPath,
@@ -69,7 +69,7 @@ function compileAoN({ ownerPkh, backerPkh, tag, goal, deadline }) {
       { kind: "bytes", value: Array.from(backerPkh) },
       { kind: "bytes", value: Array.from(tag) },
       { kind: "int", value: Number(goal) },
-      { kind: "int", value: Number(deadline) },
+      { kind: "int", value: Number(refundOpensAt) },
     ]),
   );
   const sil = join(ROOT, "src/resources/silverscript/aon_pledge.sil");
@@ -152,6 +152,7 @@ async function claimMulti({ rpc, ownerKey, ownerAddress, pledges }) {
   return res.transactionId || res;
 }
 
+/** Permissionless reclaim: only backer xonly + dispatch tag (no sig). */
 async function reclaimOne({ rpc, backerKey, bytecode, tagHex, utxo, lockTimeMs }) {
   const addr = backerKey.toKeypair().toAddress(NETWORK).toString();
   const outAmt = BigInt(utxo.amount) - FEE;
@@ -175,14 +176,9 @@ async function reclaimOne({ rpc, backerKey, bytecode, tagHex, utxo, lockTimeMs }
       gas: 0n,
       payload: "",
     });
-  const txUnsigned = mk("");
   const xonly = xonlyOf(backerKey);
-  const sigBytes = Buffer.from(
-    String(kaspa.createInputSignature(txUnsigned, 0, backerKey)).replace(/^0x/, ""),
-    "hex",
-  );
   const tag = Buffer.from(tagHex, "hex");
-  const unlock = Buffer.concat([push(xonly), sigBytes, push(tag)]);
+  const unlock = Buffer.concat([push(xonly), push(tag)]);
   const unlockHex = kaspa.payToScriptHashSignatureScript(bytecode, unlock);
   const res = await rpc.submitTransaction({ transaction: mk(unlockHex), allowOrphan: false });
   return res.transactionId || res;
@@ -193,14 +189,16 @@ async function main() {
   const ownerPkh = pkhOf(ownerKey);
   const rpc = new kaspa.RpcClient({ url: RPC, encoding: kaspa.Encoding.Borsh, networkId: NETWORK });
   await rpc.connect();
-  const results = { network: NETWORK, startedAt: new Date().toISOString(), cases: {} };
+  const results = { network: NETWORK, startedAt: new Date().toISOString(), cases: {}, style: "stag-hunt-grace" };
   const run = (name) => !ONLY || ONLY === name;
 
   try {
     if (run("A")) {
-      console.log("=== A: 3 backers goal met → claim ===");
+      console.log("=== A: goal met → owner claim BEFORE deadline ===");
       const tagA = rb(32);
-      const deadlineFuture = 4_000_000_000_000;
+      const deadlineFuture = Date.now() + 7 * 86_400_000;
+      const grace = 3 * 86_400_000;
+      const refundOpensAt = deadlineFuture + grace;
       const goalA = PLEDGE * 3n;
       const backersA = [0, 1, 2].map(() => new kaspa.PrivateKey(rb(32).toString("hex")));
       const pledgesA = [];
@@ -210,7 +208,7 @@ async function main() {
           backerPkh: pkhOf(bk),
           tag: tagA,
           goal: goalA,
-          deadline: deadlineFuture,
+          refundOpensAt,
         });
         const contract = art.contracts.AoNPledge;
         const bytecode = Buffer.from(contract.compiled.bytecode);
@@ -222,10 +220,12 @@ async function main() {
         pledgesA.push({ bytecode, utxo, tagHex, fundTxid, p2sh });
       }
       const claimTxid = await claimMulti({ rpc, ownerKey, ownerAddress, pledges: pledgesA });
-      console.log("  CLAIM OK", claimTxid);
-      results.cases.goalMetClaim = {
+      console.log("  CLAIM OK (before deadline)", claimTxid);
+      results.cases.goalMetClaimBeforeDeadline = {
         ok: true,
         goalSompi: String(goalA),
+        deadlineMs: deadlineFuture,
+        refundOpensAtMs: refundOpensAt,
         fundTxids: pledgesA.map((p) => p.fundTxid),
         fundExplorers: pledgesA.map((p) => EX(p.fundTxid)),
         claimTxid,
@@ -236,7 +236,7 @@ async function main() {
     if (run("B")) {
       console.log("=== B: adversarial inflator claim (must FAIL) ===");
       const tagB = rb(32);
-      const deadlineFuture = 4_000_000_000_000;
+      const refundOpensAt = Date.now() + 7 * 86_400_000;
       const goalB = PLEDGE * 3n;
       const backerB = new kaspa.PrivateKey(rb(32).toString("hex"));
       const artReal = compileAoN({
@@ -244,7 +244,7 @@ async function main() {
         backerPkh: pkhOf(backerB),
         tag: tagB,
         goal: goalB,
-        deadline: deadlineFuture,
+        refundOpensAt,
       });
       const realBc = Buffer.from(artReal.contracts.AoNPledge.compiled.bytecode);
       const realP2sh = p2shOf(realBc);
@@ -256,7 +256,7 @@ async function main() {
         backerPkh: ownerPkh,
         tag: rb(32),
         goal: goalB,
-        deadline: deadlineFuture,
+        refundOpensAt,
       });
       const fakeBc = Buffer.from(artFake.contracts.AoNPledge.compiled.bytecode);
       const fakeP2sh = p2shOf(fakeBc);
@@ -296,52 +296,82 @@ async function main() {
         fakeExplorer: EX(fakeFund),
         attackTxid: attackTxid || null,
         attackError,
-        note: "Creator co-spends foreign P2SH to inflate sum; sibling redeem prefix/suffix must reject",
       };
     }
 
     if (run("C")) {
-      console.log("=== C: goal missed → backer reclaim ===");
-      const tagC = rb(32);
-      // Well in the past vs network median time (avoid "not finalized")
-      const deadlinePast = Date.now() - 7 * 86_400_000;
+      console.log("=== C: goal missed → reclaim before grace FAILS; after grace OK ===");
       const goalC = PLEDGE * 10n;
-      const backersC = [0, 1, 2].map(() => new kaspa.PrivateKey(rb(32).toString("hex")));
-      const reclaimTxids = [];
-      for (const bk of backersC) {
-        const art = compileAoN({
-          ownerPkh,
-          backerPkh: pkhOf(bk),
-          tag: tagC,
-          goal: goalC,
-          deadline: deadlinePast,
-        });
-        const contract = art.contracts.AoNPledge;
-        const bytecode = Buffer.from(contract.compiled.bytecode);
-        const p2sh = p2shOf(bytecode);
-        const fundTxid = await fund(rpc, ownerKey, ownerAddress, p2sh, PLEDGE);
-        const utxo = await waitUtxo(rpc, p2sh, (e) => e.outpoint.transactionId === fundTxid);
-        const txid = await reclaimOne({
+
+      // C1: refundOpensAt still in the future → reclaim must fail (not finalized / time lock)
+      const tagEarly = rb(32);
+      const refundFuture = Date.now() + 2 * 86_400_000;
+      const bkEarly = new kaspa.PrivateKey(rb(32).toString("hex"));
+      const artEarly = compileAoN({
+        ownerPkh,
+        backerPkh: pkhOf(bkEarly),
+        tag: tagEarly,
+        goal: goalC,
+        refundOpensAt: refundFuture,
+      });
+      const bcEarly = Buffer.from(artEarly.contracts.AoNPledge.compiled.bytecode);
+      const p2shEarly = p2shOf(bcEarly);
+      const fundEarly = await fund(rpc, ownerKey, ownerAddress, p2shEarly, PLEDGE);
+      const utxoEarly = await waitUtxo(rpc, p2shEarly, (e) => e.outpoint.transactionId === fundEarly);
+      let earlyError = null;
+      let earlyTxid = null;
+      try {
+        earlyTxid = await reclaimOne({
           rpc,
-          backerKey: bk,
-          bytecode,
-          tagHex: contract.entries.reclaim.dispatch_tag,
-          utxo,
-          lockTimeMs: deadlinePast,
+          backerKey: bkEarly,
+          bytecode: bcEarly,
+          tagHex: artEarly.contracts.AoNPledge.entries.reclaim.dispatch_tag,
+          utxo: utxoEarly,
+          lockTimeMs: refundFuture,
         });
-        console.log("  reclaim OK", txid);
-        reclaimTxids.push({
-          fundTxid,
-          reclaimTxid: txid,
-          fundExplorer: EX(fundTxid),
-          reclaimExplorer: EX(txid),
-        });
+      } catch (e) {
+        earlyError = String(e?.message || e).slice(0, 500);
       }
-      results.cases.goalMissedReclaim = {
-        ok: true,
+      const earlyRejected = !earlyTxid;
+      console.log(earlyRejected ? "  EARLY RECLAIM REJECTED (good)" : "  EARLY RECLAIM SUCCEEDED (BAD)", earlyError || earlyTxid);
+
+      // C2: refundOpensAt well in the past → permissionless reclaim succeeds
+      const tagLate = rb(32);
+      const refundPast = Date.now() - 7 * 86_400_000;
+      const bkLate = new kaspa.PrivateKey(rb(32).toString("hex"));
+      const artLate = compileAoN({
+        ownerPkh,
+        backerPkh: pkhOf(bkLate),
+        tag: tagLate,
+        goal: goalC,
+        refundOpensAt: refundPast,
+      });
+      const bcLate = Buffer.from(artLate.contracts.AoNPledge.compiled.bytecode);
+      const p2shLate = p2shOf(bcLate);
+      const fundLate = await fund(rpc, ownerKey, ownerAddress, p2shLate, PLEDGE);
+      const utxoLate = await waitUtxo(rpc, p2shLate, (e) => e.outpoint.transactionId === fundLate);
+      const reclaimTxid = await reclaimOne({
+        rpc,
+        backerKey: bkLate,
+        bytecode: bcLate,
+        tagHex: artLate.contracts.AoNPledge.entries.reclaim.dispatch_tag,
+        utxo: utxoLate,
+        lockTimeMs: refundPast,
+      });
+      console.log("  RECLAIM OK after grace", reclaimTxid);
+      results.cases.goalMissedReclaimGrace = {
+        ok: earlyRejected && !!reclaimTxid,
         goalSompi: String(goalC),
-        deadlineMs: deadlinePast,
-        backers: reclaimTxids,
+        earlyFundTxid: fundEarly,
+        earlyFundExplorer: EX(fundEarly),
+        earlyRejected,
+        earlyError,
+        earlyTxid: earlyTxid || null,
+        refundOpensAtPastMs: refundPast,
+        lateFundTxid: fundLate,
+        lateFundExplorer: EX(fundLate),
+        reclaimTxid,
+        reclaimExplorer: EX(reclaimTxid),
       };
     }
   } finally {

@@ -45,7 +45,7 @@ const META: Record<string, { title: string; description: string; recommendedEntr
   aon_pledge: {
     title: "AllOrNothingPledge",
     description:
-      "Refundable all-or-nothing crowdfund pledge: each backer gets a unique address; creator claims only by co-spending pledges whose total ≥ goal; after deadline each backer reclaim. On-chain sum check via introspection.",
+      "Stag Hunt–style all-or-nothing crowdfund: each backer gets a unique P2SH; owner claims anytime sibling sum ≥ goal; after deadline+grace backers reclaim permissionlessly (output pinned to backer). No host key for refunds.",
     recommendedEntry: "claim",
   },
 };

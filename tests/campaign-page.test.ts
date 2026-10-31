@@ -33,6 +33,7 @@ describe("campaign share page", () => {
     expect(html).toMatch(/Pledge/);
     expect(html).toMatch(/progress|barFill|raisedLabel/i);
     expect(html).toMatch(/btnReclaim/);
+    expect(html).toMatch(/btnClaim/);
     expect(html).not.toMatch(/UNAUDITED|warning flag|⚠/i);
     expect(html).not.toMatch(/cdn\.|unpkg|jsdelivr|googleapis/i);
   });
@@ -74,9 +75,15 @@ describe("campaign share page", () => {
     const st = await computeCampaignStatus(recLive!);
     expect(st.status).toBe("open");
     expect(st.goalKas).toBeTruthy();
-    // past deadline with no raised → refunding
+    // past deadline but still in grace, no raised → refunding (empty)
     recLive!.deadlineMs = String(past);
+    recLive!.refundOpensAtMs = String(Date.now() + 86_400_000);
     const st2 = await computeCampaignStatus(recLive!);
-    expect(st2.status).toBe("refunding");
+    expect(["refunding", "grace"]).toContain(st2.status);
+    // after refunds open
+    recLive!.refundOpensAtMs = String(past);
+    const st3 = await computeCampaignStatus(recLive!);
+    expect(st3.status).toBe("refunding");
+    expect(st3.canReclaim).toBe(false); // nothing raised
   });
 });

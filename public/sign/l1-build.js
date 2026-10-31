@@ -250,6 +250,18 @@ export async function buildSpendTx(build) {
     outputAmountSompi: String(outAmt),
   };
 
+  const entryParams = build.entryParams || [];
+  const needsSig = entryParams.some((p) => p.type && p.type.kind === "sig");
+  if (!needsSig) {
+    // Permissionless reclaim: args already carry backer pubkey; no wallet sig needed.
+    const xonlyArg = (build.args || []).find((a) => typeof a === "string" && /^[0-9a-fA-F]{64}$/i.test(String(a).replace(/^0x/, "")));
+    const finalized = await finalizeCovenantSpend(build, safeJson, {
+      signatureScriptHex: "00",
+      xonlyPubkeyHex: xonlyArg || "00".repeat(32),
+    });
+    return { ...base, ...finalized, mode: "signed_ready_for_pushTx", note: "Permissionless reclaim — Approve broadcasts only (no signature required)." };
+  }
+
   const testKey = typeof globalThis !== "undefined" ? globalThis.__SIGN_TEST_KEY__ : null;
   if (!testKey || !globalThis.__SIGN_PREFILL_UNLOCK__) return base;
 
@@ -274,17 +286,20 @@ export async function finalizeCovenantSpend(build, partialSignedSafeJson, opts) 
   const { outAmt, utxo } = spendUtxoAndAmounts(build);
   const redeem = hexToBytes(build.bytecodeHex);
   const parsed = JSON.parse(partialSignedSafeJson);
+  const entry = { dispatch_tag: build.dispatchTag, params: build.entryParams || [] };
+  const needsSig = (entry.params || []).some((p) => p.type && p.type.kind === "sig");
   const sigHex = String(
     opts.signatureScriptHex || parsed.inputs?.[0]?.signatureScript || "",
   ).replace(/^0x/, "");
-  if (!sigHex) throw new Error("No signatureScript from KasWare signPskt — cannot unlock covenant");
-  const sigBytes = hexToBytes(sigHex);
-  const xonly = hexToBytes(toXOnlyHex(opts.xonlyPubkeyHex));
-  const entry = { dispatch_tag: build.dispatchTag, params: build.entryParams || [] };
+  if (needsSig && !sigHex) throw new Error("No signatureScript from KasWare signPskt — cannot unlock covenant");
+  const sigBytes = sigHex && sigHex !== "00" ? hexToBytes(sigHex) : new Uint8Array(0);
+  const xonlyHexOpt = opts.xonlyPubkeyHex || (build.args || []).find((a) => typeof a === "string" && /^[0-9a-fA-F]{64}$/.test(a.replace(/^0x/, "")));
+  const xonly = hexToBytes(toXOnlyHex(xonlyHexOpt || opts.xonlyPubkeyHex || "00".repeat(32)));
   const filled = (build.args || []).map((a, i) => {
     const kind = entry.params[i]?.type?.kind;
-    if (a === "$sig" || a === "$signature" || a == null) return sigBytes;
-    if (a === "$pk" || a === "$pubkey") return xonly;
+    if (a === "$sig" || a === "$signature" || (a == null && kind === "sig")) return sigBytes;
+    if (a === "$pk" || a === "$pubkey" || (a == null && kind === "pubkey")) return xonly;
+    if (typeof a === "string" && kind === "pubkey") return hexToBytes(toXOnlyHex(a));
     return a;
   });
   for (let i = 0; i < entry.params.length; i++) {

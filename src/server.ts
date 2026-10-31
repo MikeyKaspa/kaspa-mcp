@@ -2096,11 +2096,12 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
     "l1_aon_create_campaign",
     {
       description:
-        "START A CROWDFUND / FUNDRAISER / KICKSTARTER / raise-money campaign (refundable all-or-nothing). Use this — not tipjar, TipGoalJar, softcap, or compile. Prebuilt artifact + rebind; works on the public connector with the users ownerAddress. Returns sharePage.url (live pledge tracker) + campaignTag. Goal in test KAS: 1 test KAS = 100000000 sompi units.",
+        "START A CROWDFUND / FUNDRAISER / KICKSTARTER (Stag Hunt style all-or-nothing). Owner claims anytime goal met; backers reclaim permissionlessly only after deadline+grace (default 3 days). Refunds are sent to the backer address by anyone — no host key. Not tipjar/TipGoalJar/softcap. Returns sharePage.url. Goal: 1 test KAS = 100000000 sompi.",
       inputSchema: {
         ownerAddress: z.string().describe("Creator testnet/mainnet receive address"),
         goalSompi: z.union([z.string(), z.number()]).describe("Goal in sompi (1 test KAS = 100000000)"),
-        deadlineMs: z.union([z.string(), z.number()]).optional().describe("Unix ms deadline; default now+7d"),
+        deadlineMs: z.union([z.string(), z.number()]).optional().describe("Unix ms campaign deadline; default now+7d"),
+        graceMs: z.union([z.string(), z.number()]).optional().describe("Grace after deadline before refunds open; default 3 days"),
         network: z.string().optional(),
       },
     },
@@ -2114,6 +2115,7 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
           ownerAddress: a.ownerAddress,
           goalSompi: a.goalSompi,
           deadlineMs: a.deadlineMs,
+          graceMs: a.graceMs,
           network: resolved.network.isTestnet ? "testnet-10" : "mainnet",
         });
         const page = await createCampaignPage({
@@ -2123,6 +2125,8 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
           campaignTagHex: c.campaignTagHex,
           goalSompi: c.goalSompi,
           deadlineMs: c.deadlineMs,
+          graceMs: c.graceMs,
+          refundOpensAtMs: c.refundOpensAtMs,
           title: "All-or-nothing crowdfund",
         });
         return ok({
@@ -2131,7 +2135,7 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
           campaign: c,
           sharePage: { url: page.url, id: page.record.id },
           tellUser:
-            "Campaign created. Share sharePage.url — backers can pledge one-tap from the page. Or add pledges with l1_aon_add_pledge. Track progress with campaign_status.",
+            "Campaign created. Share sharePage.url — backers pledge one-tap. Owner can claim as soon as the goal is met. If the goal is missed, refunds open after deadline+grace (default 3 days) — permissionless to the backer address. Track with campaign_status.",
           next: "Share sharePage.url or l1_aon_add_pledge / campaign_status",
         });
       } catch (e) {
@@ -2187,7 +2191,8 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
           backerAddress: a.backerAddress,
           campaignTagHex: c.campaignTagHex,
           goalSompi: a.goalSompi,
-          deadlineMs: a.deadlineMs,
+          deadlineMs: c.deadlineMs,
+          refundOpensAtMs: c.refundOpensAtMs,
           expectedP2shAddress: pledge.p2shAddress,
           networkId: network.id,
         });
@@ -2220,7 +2225,7 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
           contractName: "AoNPledge",
           p2shAddress: pledge.p2shAddress,
           title: "Crowdfund pledge",
-          blurb: `All-or-nothing pledge. Goal ${a.goalSompi} sompi. Deadline ${a.deadlineMs}. Backer reclaim after deadline if goal missed.`,
+          blurb: `All-or-nothing pledge. Goal ${a.goalSompi} sompi. Deadline ${a.deadlineMs}. Owner claims when goal met; backer reclaim after deadline+grace if missed.`,
         });
         return ok({
           safety: SAFETY_BANNER,
@@ -2290,7 +2295,7 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
     "campaign_status",
     {
       description:
-        "Live all-or-nothing crowdfund status: raised vs goal, deadline countdown, status (open/goal_met/claimed/refunding), and pledge list from chain (REST failover). Pass campaignPageId from l1_aon_create_campaign sharePage.id.",
+        "Live all-or-nothing crowdfund status: raised vs goal, deadline, grace/refunds-open time, status (open/goal_met/grace/claimed/refunding), pledge list. Pass campaignPageId from l1_aon_create_campaign sharePage.id.",
       inputSchema: {
         campaignPageId: z.string().describe("Campaign share page id"),
       },

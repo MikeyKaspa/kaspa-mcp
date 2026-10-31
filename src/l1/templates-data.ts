@@ -1237,7 +1237,7 @@ export const TEMPLATE_BUNDLES = [
 ,
 {
   "id": "aon_pledge",
-  "source": "pragma silverscript ^0.1.0;\n\n// All-or-nothing per-backer pledge. Sibling inputs must share this redeem\n// template with only backerPkh varying (prefix/suffix via scriptSig substr).\n// redeemLen=1088 backerOff=916 \u2014 must match silverc output.\n// fee is a MINIMUM \u2014 output may pay more to cover compute mass.\ncontract AoNPledge(\n    byte[32] ownerPkh,\n    byte[32] backerPkh,\n    byte[32] campaignTag,\n    int goalSompi,\n    temporal deadline\n) {\n    entry claim(pubkey pk, sig s) {\n        require(blake2b(byte[](pk)) == ownerPkh);\n        require(checkSig(s, pk));\n        require(campaignTag == campaignTag);\n\n        int active = this.activeInputIndex;\n        int activeLen = OpTxInputScriptSigLen(active);\n        int redeemLen = 1088;\n        int backerOff = 916;\n        int backerEnd = 948;\n        require(activeLen >= redeemLen);\n        byte[] pref = OpTxInputScriptSigSubstr(active, activeLen - redeemLen, activeLen - redeemLen + backerOff);\n        byte[] suf = OpTxInputScriptSigSubstr(active, activeLen - redeemLen + backerEnd, activeLen);\n\n        int total = 0;\n        for (i, 0, tx.inputs.length, 8) {\n            require(tx.inputs[i].scriptPubKey.length == 37);\n            int slen = OpTxInputScriptSigLen(i);\n            require(slen == activeLen);\n            require(OpTxInputScriptSigSubstr(i, slen - redeemLen, slen - redeemLen + backerOff) == pref);\n            require(OpTxInputScriptSigSubstr(i, slen - redeemLen + backerEnd, slen) == suf);\n            total = total + tx.inputs[i].value;\n        }\n        require(total >= goalSompi);\n        byte[36] toOwner = new ScriptPubKeyP2PK(pk);\n        require(tx.outputs[0].scriptPubKey == byte[](toOwner));\n        int minFee = 300000;\n        require(tx.outputs[0].value <= total - minFee);\n        require(tx.outputs[0].value > 0);\n        require(tx.outputs.length == 1);\n    }\n\n    entry reclaim(pubkey pk, sig s) {\n        require(blake2b(byte[](pk)) == backerPkh);\n        require(checkSig(s, pk));\n        require(tx.time >= deadline);\n        require(campaignTag == campaignTag);\n        byte[36] toBacker = new ScriptPubKeyP2PK(pk);\n        require(tx.outputs[0].scriptPubKey == byte[](toBacker));\n        int minFee = 300000;\n        int val = tx.inputs[this.activeInputIndex].value;\n        require(tx.outputs[0].value <= val - minFee);\n        require(tx.outputs[0].value > 0);\n        require(tx.outputs.length == 1);\n    }\n}\n",
+  "source": "pragma silverscript ^0.1.0;\n\n// All-or-nothing per-backer pledge (Stag Hunt style).\n// Sibling inputs must share this redeem template with only backerPkh varying\n// (prefix/suffix via scriptSig substr). redeemLen/backerOff — must match silverc.\n//\n// claim: owner when sibling-checked total >= goal (anytime — no deadline wait).\n// reclaim: permissionless after refundOpensAt; output pinned to backer SPK.\n// Application sets refundOpensAt = campaignDeadline + grace (default 3d).\n// fee is a MINIMUM — output may pay more to cover compute mass.\ncontract AoNPledge(\n    byte[32] ownerPkh,\n    byte[32] backerPkh,\n    byte[32] campaignTag,\n    int goalSompi,\n    temporal refundOpensAt\n) {\n    entry claim(pubkey pk, sig s) {\n        require(blake2b(byte[](pk)) == ownerPkh);\n        require(checkSig(s, pk));\n        require(campaignTag == campaignTag);\n\n        int active = this.activeInputIndex;\n        int activeLen = OpTxInputScriptSigLen(active);\n        int redeemLen = 1075;\n        int backerOff = 910;\n        int backerEnd = 942;\n        require(activeLen >= redeemLen);\n        byte[] pref = OpTxInputScriptSigSubstr(active, activeLen - redeemLen, activeLen - redeemLen + backerOff);\n        byte[] suf = OpTxInputScriptSigSubstr(active, activeLen - redeemLen + backerEnd, activeLen);\n\n        int total = 0;\n        for (i, 0, tx.inputs.length, 8) {\n            require(tx.inputs[i].scriptPubKey.length == 37);\n            int slen = OpTxInputScriptSigLen(i);\n            require(slen == activeLen);\n            require(OpTxInputScriptSigSubstr(i, slen - redeemLen, slen - redeemLen + backerOff) == pref);\n            require(OpTxInputScriptSigSubstr(i, slen - redeemLen + backerEnd, slen) == suf);\n            total = total + tx.inputs[i].value;\n        }\n        require(total >= goalSompi);\n        byte[36] toOwner = new ScriptPubKeyP2PK(pk);\n        require(tx.outputs[0].scriptPubKey == byte[](toOwner));\n        int minFee = 300000;\n        require(tx.outputs[0].value <= total - minFee);\n        require(tx.outputs[0].value > 0);\n        require(tx.outputs.length == 1);\n    }\n\n    // Permissionless after refundOpensAt: anyone may broadcast; coins can only\n    // land at backer's P2PK (pubkey must hash to backerPkh).\n    entry reclaim(pubkey backerPk) {\n        require(blake2b(byte[](backerPk)) == backerPkh);\n        require(tx.time >= refundOpensAt);\n        require(campaignTag == campaignTag);\n        byte[36] toBacker = new ScriptPubKeyP2PK(backerPk);\n        require(tx.outputs[0].scriptPubKey == byte[](toBacker));\n        int minFee = 300000;\n        int val = tx.inputs[this.activeInputIndex].value;\n        require(tx.outputs[0].value <= val - minFee);\n        require(tx.outputs[0].value > 0);\n        require(tx.outputs.length == 1);\n    }\n}\n",
   "wrapped": {
     "meta": {
       "templateId": "aon_pledge",
@@ -1248,9 +1248,10 @@ export const TEMPLATE_BUNDLES = [
       "demoCampaignTag": "0707070707070707070707070707070707070707070707070707070707070707",
       "demoGoalSompi": 100000000,
       "demoDeadline": 4000000000000,
-      "bytecodeLen": 1088,
-      "redeemLen": 1088,
-      "backerPkhOffset": 916,
+      "demoRefundOpensAt": 4000000000000,
+      "bytecodeLen": 1075,
+      "redeemLen": 1075,
+      "backerPkhOffset": 910,
       "entries": {
         "claim": {
           "dispatch_tag": "652c8ecf",
@@ -1270,18 +1271,12 @@ export const TEMPLATE_BUNDLES = [
           ]
         },
         "reclaim": {
-          "dispatch_tag": "3566d492",
+          "dispatch_tag": "10c6b85e",
           "params": [
             {
-              "name": "pk",
+              "name": "backerPk",
               "type": {
                 "kind": "pubkey"
-              }
-            },
-            {
-              "name": "s",
-              "type": {
-                "kind": "sig"
               }
             }
           ]
@@ -1289,7 +1284,9 @@ export const TEMPLATE_BUNDLES = [
       },
       "honestLimits": [
         "Claim requires every input redeem matches this template with only backerPkh varying (scriptSig prefix/suffix).",
-        "SilverScript allows only tx.time >= ; claim cannot be disabled after deadline if goal met (race).",
+        "Owner may claim anytime sum >= goal. Refunds open only after campaignDeadline + grace (Stag Hunt style).",
+        "Reclaim is permissionless after refundOpensAt; output pinned to backer SPK (no host key).",
+        "Owner must claim within the grace window once goal is met, or backers can reclaim after refunds open.",
         "minFee is a floor; spenders may pay more for compute mass.",
         "redeemLen/backerPkhOffset are silverc-layout constants; tests assert only the backer window differs."
       ]
@@ -1324,18 +1321,12 @@ export const TEMPLATE_BUNDLES = [
               ]
             },
             "reclaim": {
-              "dispatch_tag": "3566d492",
+              "dispatch_tag": "10c6b85e",
               "params": [
                 {
-                  "name": "pk",
+                  "name": "backerPk",
                   "type": {
                     "kind": "pubkey"
-                  }
-                },
-                {
-                  "name": "s",
-                  "type": {
-                    "kind": "sig"
                   }
                 }
               ]
@@ -1478,13 +1469,13 @@ export const TEMPLATE_BUNDLES = [
               118,
               201,
               2,
-              64,
+              51,
               4,
               2,
-              148,
+              142,
               3,
               2,
-              180,
+              174,
               3,
               83,
               121,
@@ -2237,26 +2228,20 @@ export const TEMPLATE_BUNDLES = [
               103,
               118,
               4,
-              53,
-              102,
-              212,
-              146,
+              16,
+              198,
+              184,
+              94,
               135,
               99,
               117,
-              120,
+              118,
               130,
               1,
               32,
               157,
               117,
               118,
-              130,
-              1,
-              65,
-              157,
-              117,
-              120,
               170,
               32,
               1,
@@ -2292,11 +2277,6 @@ export const TEMPLATE_BUNDLES = [
               1,
               1,
               135,
-              105,
-              118,
-              82,
-              121,
-              172,
               105,
               6,
               0,
@@ -2387,8 +2367,7 @@ export const TEMPLATE_BUNDLES = [
               0,
               0,
               32,
-              82,
-              121,
+              120,
               126,
               1,
               172,
@@ -2425,7 +2404,6 @@ export const TEMPLATE_BUNDLES = [
               117,
               117,
               117,
-              117,
               81,
               103,
               106,
@@ -2433,38 +2411,38 @@ export const TEMPLATE_BUNDLES = [
               104
             ],
             "template_hash": [
+              122,
+              226,
               141,
-              241,
-              173,
-              104,
-              162,
-              157,
-              98,
-              25,
-              18,
-              147,
-              17,
-              208,
-              59,
-              248,
-              245,
-              16,
+              146,
+              67,
+              224,
+              240,
               213,
-              109,
-              43,
+              220,
+              57,
+              214,
               0,
-              115,
-              39,
-              143,
-              168,
-              234,
-              147,
-              42,
-              73,
-              219,
-              11,
-              41,
-              85
+              14,
+              209,
+              158,
+              187,
+              229,
+              63,
+              252,
+              210,
+              98,
+              68,
+              145,
+              17,
+              59,
+              66,
+              96,
+              106,
+              253,
+              21,
+              79,
+              61
             ],
             "state_span": {
               "offset": 0,

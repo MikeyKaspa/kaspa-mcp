@@ -348,7 +348,8 @@ export const AON_DEMO_GOAL_SOMPI = 100_000_000;
 export const AON_DEMO_DEADLINE = 4_000_000_000_000;
 
 /**
- * Rebind AoNPledge: ownerPkh + backerPkh + campaignTag + goalSompi + deadline.
+ * Rebind AoNPledge: ownerPkh + backerPkh + campaignTag + goalSompi + refundOpensAt.
+ * `deadline` opt is the on-chain temporal (campaignDeadline + grace).
  * Byte-identical to silverc for same constructor args (push widths must match demo).
  */
 export function rebindAoNPledge(
@@ -358,6 +359,7 @@ export function rebindAoNPledge(
     backerPkhHex: string;
     campaignTagHex: string;
     goalSompi: number | bigint;
+    /** On-chain refundOpensAt temporal (deadline + grace). */
     deadline: number | bigint;
   },
 ): LoadedArtifact {
@@ -367,7 +369,7 @@ export function rebindAoNPledge(
   const goal = BigInt(opts.goalSompi);
   const deadline = BigInt(opts.deadline);
   if (deadline < 500_000_000_000n) {
-    throw new Error("deadline must be ≥ LOCK_TIME_THRESHOLD (500000000000) — use unix ms");
+    throw new Error("refundOpensAt/deadline must be ≥ LOCK_TIME_THRESHOLD (500000000000) — use unix ms");
   }
   const demoOwner = hexToBytes(AON_DEMO_OWNER_PKH_HEX);
   const demoBacker = hexToBytes(AON_DEMO_BACKER_PKH_HEX);

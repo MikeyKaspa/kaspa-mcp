@@ -31,6 +31,8 @@ export type ResolveFundArgs = {
   /** SoftCap / AoN */
   goalSompi?: number | bigint | string;
   deadlineMs?: number | bigint | string;
+  /** AoN on-chain temporal (deadline+grace). Overrides deadlineMs when set. */
+  refundOpensAtMs?: number | bigint | string;
   /** TimeoutVault */
   recipientXonlyHex?: string;
   senderXonlyHex?: string;
@@ -125,8 +127,9 @@ export function resolveTemplateBytecodeForFund(args: ResolveFundArgs): {
       if (!args.campaignTagHex?.trim()) {
         throw new SafetyError("aon_pledge requires campaignTagHex (shared 32-byte hex id for this campaign).");
       }
-      if (args.goalSompi == null || args.deadlineMs == null) {
-        throw new SafetyError("aon_pledge requires goalSompi and deadlineMs matching the campaign.");
+      const refundOpensAt = args.refundOpensAtMs ?? args.deadlineMs;
+      if (args.goalSompi == null || refundOpensAt == null) {
+        throw new SafetyError("aon_pledge requires goalSompi and refundOpensAtMs (or deadlineMs) matching the campaign.");
       }
       const tag = args.campaignTagHex.replace(/^0x/, "").toLowerCase();
       loaded = rebindAoNPledge(loaded, {
@@ -134,14 +137,15 @@ export function resolveTemplateBytecodeForFund(args: ResolveFundArgs): {
         backerPkhHex: backer,
         campaignTagHex: tag,
         goalSompi: BigInt(args.goalSompi),
-        deadline: BigInt(args.deadlineMs),
+        deadline: BigInt(refundOpensAt),
       });
       rebound = true;
       boundParams.ownerPkhHex = ownerPkhHex;
       boundParams.backerPkhHex = backer;
       boundParams.campaignTagHex = tag;
       boundParams.goalSompi = String(args.goalSompi);
-      boundParams.deadlineMs = String(args.deadlineMs);
+      boundParams.deadlineMs = String(args.deadlineMs ?? refundOpensAt);
+      boundParams.refundOpensAtMs = String(refundOpensAt);
     } else if (args.templateId === "timeout_vault") {
       if (!args.recipientXonlyHex || !args.senderXonlyHex) {
         throw new SafetyError(

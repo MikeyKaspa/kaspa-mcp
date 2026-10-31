@@ -15,8 +15,8 @@ import {
 } from "../src/crowdfund.js";
 import { ownerPkhFromP2pkAddress } from "../src/l1/owner-pkh.js";
 
-const REDEEM_LEN = 1088;
-const BACKER_OFF = 916;
+const REDEEM_LEN = 1075;
+const BACKER_OFF = 910;
 
 const OWNER = "kaspatest:qq8x4g8see6sxhe46zmuwg28cgjauw9csxkxug2gynpfsuszp7kk78yvl9r00";
 const B1 = "kaspatest:qza6ey35a278ft60rhvjfna96dznge4qrlw9zgr7zedngjzqvd97u9t9lscq6";
@@ -103,10 +103,11 @@ describe("AoNPledge sibling-redeem enforcement", () => {
     expect(tip!.loadedExample.bytecode.length).not.toBe(hexToBytes(pledge.bytecodeHex).length);
   });
 
-  it("policy documents on-chain sibling check and remaining deadline race", () => {
+  it("policy documents on-chain sibling check and grace window (race resolved)", () => {
     expect(AON_POLICY.siblingRedeemPrefixSuffixCheck).toBe(true);
     expect(AON_POLICY.siblingRedeemNotFullyProvenOnChain).toBe(false);
-    expect(AON_POLICY.claimAfterDeadlineRace).toBe(true);
+    expect(AON_POLICY.claimAfterDeadlineRace).toBe(false);
+    expect(AON_POLICY.reclaimRequiresAfterDeadlinePlusGrace).toBe(true);
   });
 
   it("two backers same campaign share redeem prefix/suffix; attacker tag does not", () => {
