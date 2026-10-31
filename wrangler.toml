@@ -7,8 +7,8 @@ workers_dev = true
 
 [vars]
 KASPA_MCP_VERSION = "0.2.0"
-KASPA_MCP_GIT_SHA = "c71c9b1"
-KASPA_MCP_BUILD_TIME = "2026-10-31T03:26:37Z"
+KASPA_MCP_GIT_SHA = "ae180db"
+KASPA_MCP_BUILD_TIME = "2026-10-31T03:31:09Z"
 # No secrets required for read-only + unsigned-tx mode.
 MCP_PUBLIC = "true"
 # Prepare-only mainnet L1 (unsigned SafeJSON). Never accept mainnet keys.
