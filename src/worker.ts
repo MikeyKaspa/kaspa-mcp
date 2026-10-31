@@ -22,6 +22,7 @@ import {
 import { setNetworkPreferenceKv, setNetworkClientKey, hydrateSessionNetworkPreference } from "./session-network.js";
 import { setContractPageContext, getContractPage, renderContractPageHtml } from "./contract-page.js";
 import { applyNodeConfigFromEnv } from "./endpoints.js";
+import { connectorVersion } from "./version.js";
 import { requireAuthIfConfigured, stripTokenPathPrefix } from "./auth.js";
 import { privateKeyToAddress } from "./l1/pure/sign.js";
 
@@ -38,6 +39,9 @@ export interface Env extends RateLimitEnv {
   KASPA_SPENDING_MAIN_ADDRESS?: string;
   /** Private Worker: require Authorization Bearer (or X-Api-Key / /t/<token>/ path) */
   MCP_AUTH_TOKEN?: string;
+  KASPA_MCP_VERSION?: string;
+  KASPA_MCP_GIT_SHA?: string;
+  KASPA_MCP_BUILD_TIME?: string;
   SIGN_SESSIONS?: {
     put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
     get(key: string): Promise<string | null>;
@@ -80,6 +84,9 @@ export default {
       delete process.env.KASPA_SPENDING_PRIVATE_KEY;
     }
     if (env.KASPA_SPENDING_MAINNET) process.env.KASPA_SPENDING_MAINNET = env.KASPA_SPENDING_MAINNET;
+    if (env.KASPA_MCP_VERSION) process.env.KASPA_MCP_VERSION = env.KASPA_MCP_VERSION;
+    if (env.KASPA_MCP_GIT_SHA) process.env.KASPA_MCP_GIT_SHA = env.KASPA_MCP_GIT_SHA;
+    if (env.KASPA_MCP_BUILD_TIME) process.env.KASPA_MCP_BUILD_TIME = env.KASPA_MCP_BUILD_TIME;
     if (env.KASPA_SPENDING_MAIN_ADDRESS) process.env.KASPA_SPENDING_MAIN_ADDRESS = env.KASPA_SPENDING_MAIN_ADDRESS;
     if (env.KASPA_SPENDING_MAX_KAS) process.env.KASPA_SPENDING_MAX_KAS = env.KASPA_SPENDING_MAX_KAS;
     if (env.KASPA_SPENDING_MAX_TX_KAS) process.env.KASPA_SPENDING_MAX_TX_KAS = env.KASPA_SPENDING_MAX_TX_KAS;
@@ -139,7 +146,7 @@ export default {
         Response.json({
           ok: true,
           name: "kaspa-mcp",
-          version: "0.1.0",
+          ...connectorVersion(),
           rateLimit: rateLimitEnabled(env),
           compileOnWorker: false,
           silverscriptCompileOnWorker: false,

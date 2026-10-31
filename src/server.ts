@@ -43,7 +43,7 @@ import {
   assertSourceSize,
 } from "./limits.js";
 import { listTemplates, getTemplate } from "./l1/templates.js";
-import { loadSilArtifact, entryOf } from "./l1/artifact.js";
+import { loadSilArtifact, entryOf, rebindLockbox, rebindSoftCapJar } from "./l1/artifact.js";
 import { deriveP2shAddress } from "./l1/p2sh.js";
 import { prepareFund, prepareSpend, KASWARE_HINT } from "./l1/prepare.js";
 import { L1_UNAUDITED_WARNING, kaspaWasmAvailable } from "./l1/kaspa-sdk.js";
@@ -51,6 +51,7 @@ import { attachTapToApprove, utxoApiBaseFor, kaspaNetworkFor, contractLabelFor }
 import { compileSilverscript, isSilvercAvailable, silvercCompileHint } from "./l1/compile.js";
 import { coerceBytecode } from "./l1/artifact.js";
 import { resolveTemplateBytecodeForFund } from "./l1/resolve-template-bytecode.js";
+import { connectorVersion, checkAgainstLatest } from "./version.js";
 import {
   createSpendingWallet,
   spendingWalletStatus,
@@ -1766,13 +1767,19 @@ export function createKaspaMcpServer(): McpServer {
     "l1_escrow_chat_deploy",
     {
       description:
-        "SELF-HOST ONLY. Chat-deploy Escrow with spending wallet as arbiter. Buyer/seller x-only pubkeys required. " +
-        "Worker rebind is byte-identical to silverc. No popup.",
+        "SELF-HOST ONLY. Chat-deploy Escrow with spending wallet as arbiter. " +
+        "Buyer/seller default to the spending wallet x-only pubkey (self-test); pass both for a real third-party escrow. No popup.",
       inputSchema: {
         network: z.string().optional(),
         amountSompi: z.union([z.string(), z.number()]).default("100000000"),
-        buyerXonlyHex: z.string().describe("Buyer 32-byte x-only pubkey hex"),
-        sellerXonlyHex: z.string().describe("Seller 32-byte x-only pubkey hex"),
+        buyerXonlyHex: z
+          .string()
+          .optional()
+          .describe("Buyer 32-byte x-only pubkey hex (default: spending wallet)"),
+        sellerXonlyHex: z
+          .string()
+          .optional()
+          .describe("Seller 32-byte x-only pubkey hex (default: spending wallet)"),
         priorityFeeSompi: z.union([z.string(), z.number()]).optional(),
       },
     },
@@ -1809,8 +1816,9 @@ export function createKaspaMcpServer(): McpServer {
         const network = resolved.network;
         const key = assertCanAutoSign(network);
         const arbiterPkh = await ownerPkhHex(key.hex);
-        const buyer = a.buyerXonlyHex.replace(/^0x/, "").toLowerCase();
-        const seller = a.sellerXonlyHex.replace(/^0x/, "").toLowerCase();
+        const selfX = bytesToHex(privateKeyToXonly(key.hex));
+        const buyer = (a.buyerXonlyHex || selfX).replace(/^0x/, "").toLowerCase();
+        const seller = (a.sellerXonlyHex || selfX).replace(/^0x/, "").toLowerCase();
         const esc = getTemplate("escrow");
         let loaded;
         if (isSilvercAvailable()) {
@@ -1962,6 +1970,214 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
         },
       ],
     }),
+  );
+
+
+  server.registerTool(
+    "connector_version",
+    {
+      description:
+        "Show this connector's version and whether a newer GitHub release/main exists. " +
+        "Self-hosters who are behind should call self_host({ step: \"update\" }). Never auto-updates.",
+      inputSchema: {
+        checkLatest: z.boolean().optional().describe("If true (default), check GitHub for newer release/main"),
+      },
+    },
+    async (a) => {
+      try {
+        const ver = connectorVersion();
+        const check =
+          a.checkLatest === false
+            ? { current: ver.version, behind: false }
+            : await checkAgainstLatest();
+        return ok({
+          safety: SAFETY_BANNER,
+          ...ver,
+          latestCheck: check,
+          update:
+            check.behind
+              ? { step: "self_host", args: { step: "update" }, neverAutoUpdate: true }
+              : undefined,
+        });
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "l1_lockbox_chat_deploy",
+    {
+      description:
+        "SELF-HOST ONLY. Chat-deploy Lockbox (time-locked savings): anyone funds; owner withdraws only after unlockAt (unix ms). " +
+        "Default unlock = now+1h on testnet. Worker rebind is byte-identical to silverc. No popup.",
+      inputSchema: {
+        network: z.string().optional(),
+        amountSompi: z.union([z.string(), z.number()]).default("100000000"),
+        unlockAtMs: z
+          .union([z.string(), z.number()])
+          .optional()
+          .describe("Unix ms unlock time (≥ 500000000000). Default: now + 1 hour"),
+        unlockInMs: z
+          .union([z.string(), z.number()])
+          .optional()
+          .describe("Alternative: unlock this many ms from now (default 3600000)"),
+        priorityFeeSompi: z.union([z.string(), z.number()]).optional(),
+      },
+    },
+    async (a) => {
+      try {
+        if (isSharedPublicDemo()) {
+          return ok({
+            safety: SAFETY_BANNER,
+            warning: L1_UNAUDITED_WARNING,
+            refused: true,
+            reason: "shared_demo_keyless",
+            plainEnglish: "Lockbox chat-deploy needs YOUR own copy (self_host). On the public demo use l1_prepare_fund with templateId lockbox + ownerAddress.",
+            askUser: "Set up your own copy for no-popup lockbox, or prepare a tap-to-approve fund link?",
+          });
+        }
+        const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
+        const ask = needNetworkChoicePayload(resolved);
+        if (ask) return ask;
+        if (!resolved.ok) return err("network resolve failed");
+        const network = resolved.network;
+        const key = assertCanAutoSign(network);
+        const pkh = await ownerPkhHex(key.hex);
+        const unlockAt = a.unlockAtMs != null
+          ? BigInt(a.unlockAtMs)
+          : BigInt(Date.now() + Number(a.unlockInMs ?? 3_600_000));
+        const tpl = getTemplate("lockbox");
+        let loaded;
+        if (isSilvercAvailable()) {
+          loaded = compileSilverscript({
+            source: tpl.source,
+            constructorArgs: [
+              { kind: "bytes", value: Array.from(Buffer.from(pkh, "hex")) },
+              { kind: "int", value: Number(unlockAt) },
+            ],
+          });
+        } else {
+          loaded = rebindLockbox(tpl.loadedExample, { ownerPkhHex: pkh, unlockAt });
+        }
+        const funded = await autoFundCovenant({
+          network,
+          bytecode: loaded.bytecode,
+          amountSompi: BigInt(a.amountSompi),
+          priorityFeeSompi: a.priorityFeeSompi != null ? BigInt(a.priorityFeeSompi) : undefined,
+          templateId: "lockbox",
+        });
+        const page = await createContractPage({
+          networkId: network.id,
+          templateId: "lockbox",
+          contractName: loaded.contractName,
+          p2shAddress: funded.p2shAddress,
+          fundTxid: funded.txid,
+          explorer: funded.explorer,
+          title: "Lockbox",
+          blurb: `Time-locked savings. Owner can withdraw only after ${unlockAt} (unix ms).`,
+        });
+        return ok({
+          safety: SAFETY_BANNER,
+          warning: L1_UNAUDITED_WARNING,
+          mode: "spending_wallet_lockbox_deploy",
+          ownerPkhHex: pkh,
+          unlockAtMs: unlockAt.toString(),
+          ...funded,
+          sharePage: { url: page.url, id: page.record.id },
+          next: "After unlockAt, l1_prepare_spend entry withdraw (or autoSignBroadcast on self-host).",
+        });
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "l1_softcap_chat_deploy",
+    {
+      description:
+        "SELF-HOST ONLY. Chat-deploy SoftCapJar: anyone funds; owner claims early only if UTXO ≥ goalSompi; after deadline owner may close for any amount. " +
+        "Contributors are NOT auto-refunded (honest labeling). Default goal 1 tKAS, deadline now+7d. No popup.",
+      inputSchema: {
+        network: z.string().optional(),
+        amountSompi: z.union([z.string(), z.number()]).default("100000000"),
+        goalSompi: z.union([z.string(), z.number()]).default("100000000").describe("Soft cap in sompi (must fit 4-byte silverc encoding, ≲42 KAS)"),
+        deadlineMs: z.union([z.string(), z.number()]).optional().describe("Unix ms deadline; default now+7d"),
+        priorityFeeSompi: z.union([z.string(), z.number()]).optional(),
+      },
+    },
+    async (a) => {
+      try {
+        if (isSharedPublicDemo()) {
+          return ok({
+            safety: SAFETY_BANNER,
+            warning: L1_UNAUDITED_WARNING,
+            refused: true,
+            reason: "shared_demo_keyless",
+            plainEnglish: "SoftCapJar chat-deploy needs YOUR own copy (self_host).",
+          });
+        }
+        const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
+        const ask = needNetworkChoicePayload(resolved);
+        if (ask) return ask;
+        if (!resolved.ok) return err("network resolve failed");
+        const network = resolved.network;
+        const key = assertCanAutoSign(network);
+        const pkh = await ownerPkhHex(key.hex);
+        const goal = BigInt(a.goalSompi);
+        const deadline = a.deadlineMs != null ? BigInt(a.deadlineMs) : BigInt(Date.now() + 7 * 86_400_000);
+        const tpl = getTemplate("softcap");
+        let loaded;
+        if (isSilvercAvailable()) {
+          loaded = compileSilverscript({
+            source: tpl.source,
+            constructorArgs: [
+              { kind: "bytes", value: Array.from(Buffer.from(pkh, "hex")) },
+              { kind: "int", value: Number(goal) },
+              { kind: "int", value: Number(deadline) },
+            ],
+          });
+        } else {
+          loaded = rebindSoftCapJar(tpl.loadedExample, {
+            ownerPkhHex: pkh,
+            goalSompi: goal,
+            deadline,
+          });
+        }
+        const funded = await autoFundCovenant({
+          network,
+          bytecode: loaded.bytecode,
+          amountSompi: BigInt(a.amountSompi),
+          priorityFeeSompi: a.priorityFeeSompi != null ? BigInt(a.priorityFeeSompi) : undefined,
+          templateId: "softcap",
+        });
+        const page = await createContractPage({
+          networkId: network.id,
+          templateId: "softcap",
+          contractName: loaded.contractName,
+          p2shAddress: funded.p2shAddress,
+          fundTxid: funded.txid,
+          explorer: funded.explorer,
+          title: "SoftCapJar",
+          blurb: `Soft-cap jar. Claim if ≥ ${goal} sompi; after deadline owner may close. Contributors are not auto-refunded.`,
+        });
+        return ok({
+          safety: SAFETY_BANNER,
+          warning: L1_UNAUDITED_WARNING,
+          mode: "spending_wallet_softcap_deploy",
+          ownerPkhHex: pkh,
+          goalSompi: goal.toString(),
+          deadlineMs: deadline.toString(),
+          contributorNote: "Contributors are NOT auto-refunded — each UTXO is independent.",
+          ...funded,
+          sharePage: { url: page.url, id: page.record.id },
+          next: "Owner: entry claim (if ≥ goal) or entry close after deadline.",
+        });
+      } catch (e) {
+        return err(e);
+      }
+    },
   );
 
   return server;

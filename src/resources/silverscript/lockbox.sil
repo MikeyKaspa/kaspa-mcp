@@ -1,0 +1,10 @@
+pragma silverscript ^0.1.0;
+
+// Savings / time-lock tip jar: anyone can fund; owner withdraws only after unlockAt.
+contract Lockbox(byte[32] ownerPkh, temporal unlockAt) {
+    entry withdraw(pubkey pk, sig s) {
+        require(blake2b(byte[](pk)) == ownerPkh);
+        require(checkSig(s, pk));
+        require(tx.time >= unlockAt);
+    }
+}

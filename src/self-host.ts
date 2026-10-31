@@ -20,7 +20,8 @@ export type SelfHostStep =
   | "verify"
   | "connect"
   | "status"
-  | "own_node";
+  | "own_node"
+  | "update";
 
 export type SelfHostPlatform = "cloudflare" | "local";
 
@@ -45,6 +46,7 @@ const KNOWN_STEPS: SelfHostStep[] = [
   "verify",
   "status",
   "own_node",
+  "update",
 ];
 
 export async function runSelfHostGuide(args: SelfHostArgs): Promise<Record<string, unknown>> {
@@ -300,7 +302,37 @@ printf '%s' '0xYOUR_KEY' | npx wrangler secret put KASPA_SPENDING_PRIVATE_KEY -c
     };
   }
 
+  if (step === "update") {
+    return {
+      ...base,
+      title: "Update your copy to the latest release (secrets preserved)",
+      plainEnglish:
+        "This never runs automatically. You pull the latest code and redeploy; Cloudflare keeps your Worker secrets and KV data.",
+      humanSteps: [
+        "Open a terminal in your kaspa-mcp folder (the one you deployed from).",
+        "Copy-paste the commands below.",
+        "Confirm /health shows the new version.",
+        "Spending wallet secret and SIGN_SESSIONS KV stay on YOUR account — do not re-run secret put unless you rotated keys.",
+      ],
+      commands: code(`
+cd kaspa-mcp
+git fetch origin
+git pull origin main
+npm install
+npm test
+# Redeploy the SAME config you used before (keeps name + KV binding + secrets):
+npx wrangler deploy -c wrangler.selfhost.toml
+# Optional: confirm
+curl -s https://<your-worker>.workers.dev/health | grep version
+`),
+      neverAutoUpdate: true,
+      tip: "If you used a custom wrangler.*.toml name, pass that -c file instead. Secrets are not in git.",
+      next: 'self_host({ step: "verify" }) or spending_wallet_status',
+    };
+  }
+
   if (step === "own_node") {
+
     return {
       ...base,
       title: "Point at your own Kaspa node (optional)",

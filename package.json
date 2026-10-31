@@ -1,6 +1,6 @@
 {
   "name": "kaspa-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Public open-source MCP connector for Kaspa L1 SilverScript (primary) and Kasplex/Igra EVM (secondary). Non-custodial, $0 public RPCs.",
   "type": "module",
   "license": "MIT",

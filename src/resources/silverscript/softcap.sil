@@ -1,0 +1,18 @@
+pragma silverscript ^0.1.0;
+
+// Soft-cap jar: anyone funds. Owner claims early only if this UTXO >= goalSompi;
+// after deadline owner may close for any amount. Contributors are NOT auto-refunded
+// (each UTXO is independent — label honestly in product copy).
+contract SoftCapJar(byte[32] ownerPkh, int goalSompi, temporal deadline) {
+    entry claim(pubkey pk, sig s) {
+        require(blake2b(byte[](pk)) == ownerPkh);
+        require(checkSig(s, pk));
+        require(tx.inputs[this.activeInputIndex].value >= goalSompi);
+    }
+
+    entry close(pubkey pk, sig s) {
+        require(blake2b(byte[](pk)) == ownerPkh);
+        require(checkSig(s, pk));
+        require(tx.time >= deadline);
+    }
+}

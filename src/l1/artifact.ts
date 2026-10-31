@@ -260,3 +260,81 @@ export function rebindEscrowParties(
   bc = replaceNthOccurrence(bc, demoX, seller, 0);
   return cloneWithBytecode(loaded, bc);
 }
+
+/** Demo unlockAt / deadline temporal embedded in Lockbox + SoftCapJar examples. */
+export const LOCKBOX_DEMO_UNLOCK_AT = 4_000_000_000_000;
+export const SOFTCAP_DEMO_GOAL_SOMPI = 100_000_000;
+
+/** Encode temporal/int as silverc minimal little-endian push (must be 6 bytes for ms timestamps ≥ 2^40). */
+export function encodeSilvercInt6(value: number | bigint): Uint8Array {
+  const v = BigInt(value);
+  if (v < 0n) throw new Error("negative int");
+  // Prefer 6-byte LE for Worker rebind stability when value fits and is ≥ 2^40
+  const buf = new Uint8Array(8);
+  let x = v;
+  for (let i = 0; i < 8; i++) {
+    buf[i] = Number(x & 0xffn);
+    x >>= 8n;
+  }
+  // trim high zeros but keep at least 1
+  let len = 8;
+  while (len > 1 && buf[len - 1] === 0) len--;
+  return buf.slice(0, len);
+}
+
+/**
+ * Rebind Lockbox: ownerPkh + unlockAt (6-byte temporal push in demo artifact).
+ * unlockAt must encode to the same push width as the demo (6 bytes) — use ms ≥ 2^40.
+ */
+export function rebindLockbox(
+  loaded: LoadedArtifact,
+  opts: { ownerPkhHex: string; unlockAt: number | bigint },
+): LoadedArtifact {
+  const owner = hexToBytes(assertHex32(opts.ownerPkhHex, "ownerPkhHex"));
+  const demoPkh = hexToBytes(TIPJAR_DEMO_OWNER_PKH_HEX);
+  const unlock = BigInt(opts.unlockAt);
+  if (unlock < 500_000_000_000n) {
+    throw new Error("unlockAt must be ≥ LOCK_TIME_THRESHOLD (500000000000) — use unix ms");
+  }
+  const newEnc = encodeSilvercInt6(unlock);
+  const demoEnc = encodeSilvercInt6(LOCKBOX_DEMO_UNLOCK_AT);
+  if (newEnc.length !== demoEnc.length) {
+    throw new Error(
+      `unlockAt encoding width ${newEnc.length} ≠ demo ${demoEnc.length}; pick a ms timestamp in the same magnitude`,
+    );
+  }
+  let bc = replaceAllOccurrences(loaded.bytecode, demoPkh, owner);
+  bc = replaceAllOccurrences(bc, demoEnc, newEnc);
+  return cloneWithBytecode(loaded, bc);
+}
+
+/**
+ * Rebind SoftCapJar: ownerPkh + goalSompi + deadline.
+ * Demo goal is 1e8 (4-byte LE); deadline matches Lockbox 6-byte temporal.
+ */
+export function rebindSoftCapJar(
+  loaded: LoadedArtifact,
+  opts: { ownerPkhHex: string; goalSompi: number | bigint; deadline: number | bigint },
+): LoadedArtifact {
+  const owner = hexToBytes(assertHex32(opts.ownerPkhHex, "ownerPkhHex"));
+  const demoPkh = hexToBytes(TIPJAR_DEMO_OWNER_PKH_HEX);
+  const goal = BigInt(opts.goalSompi);
+  const deadline = BigInt(opts.deadline);
+  if (deadline < 500_000_000_000n) {
+    throw new Error("deadline must be ≥ LOCK_TIME_THRESHOLD (500000000000) — use unix ms");
+  }
+  const demoGoal = encodeSilvercInt6(SOFTCAP_DEMO_GOAL_SOMPI);
+  const newGoal = encodeSilvercInt6(goal);
+  const demoDead = encodeSilvercInt6(LOCKBOX_DEMO_UNLOCK_AT);
+  const newDead = encodeSilvercInt6(deadline);
+  if (newGoal.length !== demoGoal.length) {
+    throw new Error(`goalSompi width ${newGoal.length} ≠ demo ${demoGoal.length}`);
+  }
+  if (newDead.length !== demoDead.length) {
+    throw new Error(`deadline width ${newDead.length} ≠ demo ${demoDead.length}`);
+  }
+  let bc = replaceAllOccurrences(loaded.bytecode, demoPkh, owner);
+  bc = replaceAllOccurrences(bc, demoGoal, newGoal);
+  bc = replaceAllOccurrences(bc, demoDead, newDead);
+  return cloneWithBytecode(loaded, bc);
+}

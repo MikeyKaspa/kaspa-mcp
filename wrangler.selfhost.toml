@@ -8,6 +8,9 @@ compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
 [vars]
+KASPA_MCP_VERSION = "0.2.0"
+KASPA_MCP_GIT_SHA = "e285344"
+KASPA_MCP_BUILD_TIME = "2026-10-31T02:05:01Z"
 MCP_PUBLIC = "false"
 KASPA_L1_MAINNET_WRITES = "1"
 KASPA_L1_BROWSER_BUILD = "0"

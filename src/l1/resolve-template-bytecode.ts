@@ -1,10 +1,16 @@
 /**
  * Resolve template bytecode for fund/spend — ALWAYS rebound to the declared owner
- * so we never fund the demo TipJar by accident.
+ * so we never fund the demo TipJar/Lockbox/SoftCap by accident.
  */
 import { getTemplate } from "./templates.js";
-import { loadSilArtifact, rebindTipjarOwnerPkh, type LoadedArtifact } from "./artifact.js";
-import { coerceBytecode } from "./artifact.js";
+import {
+  loadSilArtifact,
+  rebindTipjarOwnerPkh,
+  rebindLockbox,
+  rebindSoftCapJar,
+  type LoadedArtifact,
+  coerceBytecode,
+} from "./artifact.js";
 import { ownerPkhFromP2pkAddress, assertP2shMatches } from "./owner-pkh.js";
 import { p2shAddress } from "./pure/sign.js";
 import { SafetyError } from "../safety.js";
@@ -14,12 +20,13 @@ export type ResolveFundArgs = {
   artifact?: unknown;
   contractName?: string;
   bytecodeHex?: string;
-  /** P2PK address whose blake2b(x-only) becomes TipJar ownerPkh */
   ownerAddress?: string;
-  /** Explicit 32-byte ownerPkh hex (alternative to ownerAddress) */
   ownerPkhHex?: string;
-  /** Optional: previously shown P2SH — must match after rebind */
   expectedP2shAddress?: string;
+  /** Lockbox / SoftCapJar */
+  unlockAtMs?: number | bigint;
+  goalSompi?: number | bigint;
+  deadlineMs?: number | bigint;
   networkId: string;
 };
 
@@ -42,17 +49,30 @@ export function resolveTemplateBytecodeForFund(args: ResolveFundArgs): {
   if (args.templateId) {
     loaded = getTemplate(args.templateId).loadedExample;
     bytecode = loaded.bytecode;
-    if (args.templateId === "tipjar") {
+    const needsOwner =
+      args.templateId === "tipjar" ||
+      args.templateId === "lockbox" ||
+      args.templateId === "softcap";
+    if (needsOwner) {
       if (!ownerPkhHex) {
         if (!args.ownerAddress?.trim()) {
           throw new SafetyError(
-            "TipJar fund/prepare requires ownerAddress (your kaspatest:q… receive address) " +
-              "or ownerPkhHex so we bind the jar to YOU — never the demo template.",
+            `${args.templateId} fund/prepare requires ownerAddress (your kaspatest:q… receive address) ` +
+              "or ownerPkhHex so we bind the contract to YOU — never the demo template.",
           );
         }
         ownerPkhHex = ownerPkhFromP2pkAddress(args.ownerAddress);
       }
-      loaded = rebindTipjarOwnerPkh(loaded, ownerPkhHex);
+      if (args.templateId === "tipjar") {
+        loaded = rebindTipjarOwnerPkh(loaded, ownerPkhHex);
+      } else if (args.templateId === "lockbox") {
+        const unlockAt = args.unlockAtMs ?? Date.now() + 3_600_000;
+        loaded = rebindLockbox(loaded, { ownerPkhHex, unlockAt });
+      } else if (args.templateId === "softcap") {
+        const goalSompi = args.goalSompi ?? 100_000_000;
+        const deadline = args.deadlineMs ?? Date.now() + 7 * 86_400_000;
+        loaded = rebindSoftCapJar(loaded, { ownerPkhHex, goalSompi, deadline });
+      }
       bytecode = loaded.bytecode;
       rebound = true;
     }
@@ -66,7 +86,7 @@ export function resolveTemplateBytecodeForFund(args: ResolveFundArgs): {
   }
 
   const addr = p2shAddress(bytecode, net);
-  assertP2shMatches(addr, args.expectedP2shAddress, "TipJar P2SH");
+  assertP2shMatches(addr, args.expectedP2shAddress, "contract P2SH");
   const bytecodeHex = [...bytecode].map((b) => b.toString(16).padStart(2, "0")).join("");
   return { loaded, bytecode, bytecodeHex, p2shAddress: addr, ownerPkhHex, rebound };
 }

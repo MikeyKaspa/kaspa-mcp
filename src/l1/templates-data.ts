@@ -9,7 +9,6 @@ export const TEMPLATE_BUNDLES = [
         "silverc": "v1.0.0",
         "networkHint": "testnet-10",
         "demoPrivateKeyNote": "Demo-only sample (not for real funds). On your own copy the bot rebinds the template to your spending wallet automatically — no manual key compile step.",
-        "demoAddress": "kaspatest:qpumuen7l8wthtz45p3ftn58pvrs9xlumvkuu2xet8egzkcklqtes5z8rkmpd",
         "exampleP2shTestnet10": "kaspatest:prfqwa3gj2y245963eqg28ce34tce9qtxfc43guxvwlz9rd05xflg6ardagg2",
         "bytecodeLen": 69,
         "entries": {
@@ -190,7 +189,6 @@ export const TEMPLATE_BUNDLES = [
         "silverc": "v1.0.0",
         "networkHint": "testnet-10",
         "demoPrivateKeyNote": "Demo-only sample (not for real funds). On your own copy the bot rebinds the template to your spending wallet automatically — no manual key compile step.",
-        "demoAddress": "kaspatest:qpumuen7l8wthtz45p3ftn58pvrs9xlumvkuu2xet8egzkcklqtes5z8rkmpd",
         "exampleP2shTestnet10": "kaspatest:pzw2pu32alulge2gv0phjpavgyjlc9plj2vm94lf8vyav3jl9madu3x9qadk5",
         "bytecodeLen": 128,
         "entries": {
@@ -218,7 +216,6 @@ export const TEMPLATE_BUNDLES = [
           }
         },
         "recommendedEntry": "transfer",
-        "timeoutMs": 4000000000000,
         "demoPkhHex": "9407263be9dc3c4b5b9afbd02ebb5d5cbda687dfb57c65c1816c8cdca9b677a0",
         "demoXOnlyPubHex": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
       },
@@ -441,7 +438,6 @@ export const TEMPLATE_BUNDLES = [
         "silverc": "v1.0.0",
         "networkHint": "testnet-10",
         "demoPrivateKeyNote": "Demo-only sample (not for real funds). On your own copy the bot rebinds the template to your spending wallet automatically — no manual key compile step.",
-        "demoAddress": "kaspatest:qpumuen7l8wthtz45p3ftn58pvrs9xlumvkuu2xet8egzkcklqtes5z8rkmpd",
         "exampleP2shTestnet10": "kaspatest:pq7efuqrnlk38q94jlrv4qqxhscuul500h7x73yfgzk5vcw2t6ytz09us4frv",
         "bytecodeLen": 184,
         "entries": {
@@ -464,7 +460,6 @@ export const TEMPLATE_BUNDLES = [
           }
         },
         "recommendedEntry": "spend",
-        "escrowMinerFeeSompi": 300000,
         "demoPkhHex": "9407263be9dc3c4b5b9afbd02ebb5d5cbda687dfb57c65c1816c8cdca9b677a0",
         "demoXOnlyPubHex": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
       },
@@ -718,6 +713,514 @@ export const TEMPLATE_BUNDLES = [
                 211,
                 80,
                 65
+              ],
+              "state_span": {
+                "offset": 0,
+                "len": 0
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "lockbox",
+    "source": "pragma silverscript ^0.1.0;\n\n// Savings / time-lock tip jar: anyone can fund; owner withdraws only after unlockAt.\ncontract Lockbox(byte[32] ownerPkh, temporal unlockAt) {\n    entry withdraw(pubkey pk, sig s) {\n        require(blake2b(byte[](pk)) == ownerPkh);\n        require(checkSig(s, pk));\n        require(tx.time >= unlockAt);\n    }\n}\n",
+    "wrapped": {
+      "meta": {
+        "templateId": "lockbox",
+        "silverc": "v1.0.0",
+        "networkHint": "testnet-10",
+        "demoPrivateKeyNote": "Demo-only sample (not for real funds). On your own copy the bot rebinds the template to your spending wallet automatically — no manual key compile step.",
+        "exampleP2shTestnet10": "kaspatest:pqkm5p9c47tj9gwsld9zpzge4ypwmmkrsty2spd9c3naehy8xg4syprsnfx2z",
+        "bytecodeLen": 86,
+        "entries": {
+          "withdraw": {
+            "dispatch_tag": "e36d1915",
+            "params": [
+              {
+                "name": "pk",
+                "type": {
+                  "kind": "pubkey"
+                }
+              },
+              {
+                "name": "s",
+                "type": {
+                  "kind": "sig"
+                }
+              }
+            ]
+          }
+        },
+        "recommendedEntry": "withdraw",
+        "demoPkhHex": "9407263be9dc3c4b5b9afbd02ebb5d5cbda687dfb57c65c1816c8cdca9b677a0",
+        "demoXOnlyPubHex": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        "demoUnlockAt": 4000000000000
+      },
+      "artifact": {
+        "schema_version": 1,
+        "compiler_version": "0.1.0",
+        "structs": {},
+        "contracts": {
+          "Lockbox": {
+            "source_path": "sil/Lockbox.sil",
+            "runtime_state": {
+              "source": "State",
+              "fields": []
+            },
+            "entries": {
+              "withdraw": {
+                "dispatch_tag": "e36d1915",
+                "params": [
+                  {
+                    "name": "pk",
+                    "type": {
+                      "kind": "pubkey"
+                    }
+                  },
+                  {
+                    "name": "s",
+                    "type": {
+                      "kind": "sig"
+                    }
+                  }
+                ]
+              }
+            },
+            "compiled": {
+              "bytecode": [
+                118,
+                4,
+                227,
+                109,
+                25,
+                21,
+                135,
+                99,
+                117,
+                120,
+                130,
+                1,
+                32,
+                157,
+                117,
+                118,
+                130,
+                1,
+                65,
+                157,
+                117,
+                120,
+                170,
+                32,
+                148,
+                7,
+                38,
+                59,
+                233,
+                220,
+                60,
+                75,
+                91,
+                154,
+                251,
+                208,
+                46,
+                187,
+                93,
+                92,
+                189,
+                166,
+                135,
+                223,
+                181,
+                124,
+                101,
+                193,
+                129,
+                108,
+                140,
+                220,
+                169,
+                182,
+                119,
+                160,
+                135,
+                105,
+                118,
+                82,
+                121,
+                172,
+                105,
+                6,
+                0,
+                64,
+                148,
+                82,
+                163,
+                3,
+                118,
+                5,
+                0,
+                136,
+                82,
+                106,
+                116,
+                162,
+                105,
+                176,
+                117,
+                117,
+                81,
+                103,
+                106,
+                104
+              ],
+              "template_hash": [
+                82,
+                57,
+                175,
+                162,
+                23,
+                228,
+                18,
+                223,
+                220,
+                223,
+                89,
+                164,
+                219,
+                133,
+                27,
+                98,
+                75,
+                171,
+                40,
+                8,
+                154,
+                14,
+                195,
+                21,
+                244,
+                156,
+                183,
+                232,
+                105,
+                103,
+                95,
+                98
+              ],
+              "state_span": {
+                "offset": 0,
+                "len": 0
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "softcap",
+    "source": "pragma silverscript ^0.1.0;\n\n// Soft-cap jar: anyone funds. Owner claims early only if this UTXO >= goalSompi;\n// after deadline owner may close for any amount. Contributors are NOT auto-refunded\n// (each UTXO is independent — label honestly in product copy).\ncontract SoftCapJar(byte[32] ownerPkh, int goalSompi, temporal deadline) {\n    entry claim(pubkey pk, sig s) {\n        require(blake2b(byte[](pk)) == ownerPkh);\n        require(checkSig(s, pk));\n        require(tx.inputs[this.activeInputIndex].value >= goalSompi);\n    }\n\n    entry close(pubkey pk, sig s) {\n        require(blake2b(byte[](pk)) == ownerPkh);\n        require(checkSig(s, pk));\n        require(tx.time >= deadline);\n    }\n}\n",
+    "wrapped": {
+      "meta": {
+        "templateId": "softcap",
+        "silverc": "v1.0.0",
+        "networkHint": "testnet-10",
+        "demoPrivateKeyNote": "Demo-only sample (not for real funds). On your own copy the bot rebinds the template to your spending wallet automatically — no manual key compile step.",
+        "exampleP2shTestnet10": "kaspatest:pzwz99e7ngdjm69f2kw6n8jtc605quk07stydgglne77d96jgtsxkkgt5969d",
+        "bytecodeLen": 163,
+        "entries": {
+          "claim": {
+            "dispatch_tag": "652c8ecf",
+            "params": [
+              {
+                "name": "pk",
+                "type": {
+                  "kind": "pubkey"
+                }
+              },
+              {
+                "name": "s",
+                "type": {
+                  "kind": "sig"
+                }
+              }
+            ]
+          },
+          "close": {
+            "dispatch_tag": "693550dc",
+            "params": [
+              {
+                "name": "pk",
+                "type": {
+                  "kind": "pubkey"
+                }
+              },
+              {
+                "name": "s",
+                "type": {
+                  "kind": "sig"
+                }
+              }
+            ]
+          }
+        },
+        "recommendedEntry": "claim",
+        "demoPkhHex": "9407263be9dc3c4b5b9afbd02ebb5d5cbda687dfb57c65c1816c8cdca9b677a0",
+        "demoXOnlyPubHex": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        "demoGoalSompi": 100000000,
+        "demoDeadline": 4000000000000
+      },
+      "artifact": {
+        "schema_version": 1,
+        "compiler_version": "0.1.0",
+        "structs": {},
+        "contracts": {
+          "SoftCapJar": {
+            "source_path": "sil/SoftCapJar.sil",
+            "runtime_state": {
+              "source": "State",
+              "fields": []
+            },
+            "entries": {
+              "claim": {
+                "dispatch_tag": "652c8ecf",
+                "params": [
+                  {
+                    "name": "pk",
+                    "type": {
+                      "kind": "pubkey"
+                    }
+                  },
+                  {
+                    "name": "s",
+                    "type": {
+                      "kind": "sig"
+                    }
+                  }
+                ]
+              },
+              "close": {
+                "dispatch_tag": "693550dc",
+                "params": [
+                  {
+                    "name": "pk",
+                    "type": {
+                      "kind": "pubkey"
+                    }
+                  },
+                  {
+                    "name": "s",
+                    "type": {
+                      "kind": "sig"
+                    }
+                  }
+                ]
+              }
+            },
+            "compiled": {
+              "bytecode": [
+                118,
+                4,
+                101,
+                44,
+                142,
+                207,
+                135,
+                99,
+                117,
+                120,
+                130,
+                1,
+                32,
+                157,
+                117,
+                118,
+                130,
+                1,
+                65,
+                157,
+                117,
+                120,
+                170,
+                32,
+                148,
+                7,
+                38,
+                59,
+                233,
+                220,
+                60,
+                75,
+                91,
+                154,
+                251,
+                208,
+                46,
+                187,
+                93,
+                92,
+                189,
+                166,
+                135,
+                223,
+                181,
+                124,
+                101,
+                193,
+                129,
+                108,
+                140,
+                220,
+                169,
+                182,
+                119,
+                160,
+                135,
+                105,
+                118,
+                82,
+                121,
+                172,
+                105,
+                185,
+                190,
+                4,
+                0,
+                225,
+                245,
+                5,
+                162,
+                105,
+                117,
+                117,
+                81,
+                103,
+                118,
+                4,
+                105,
+                53,
+                80,
+                220,
+                135,
+                99,
+                117,
+                120,
+                130,
+                1,
+                32,
+                157,
+                117,
+                118,
+                130,
+                1,
+                65,
+                157,
+                117,
+                120,
+                170,
+                32,
+                148,
+                7,
+                38,
+                59,
+                233,
+                220,
+                60,
+                75,
+                91,
+                154,
+                251,
+                208,
+                46,
+                187,
+                93,
+                92,
+                189,
+                166,
+                135,
+                223,
+                181,
+                124,
+                101,
+                193,
+                129,
+                108,
+                140,
+                220,
+                169,
+                182,
+                119,
+                160,
+                135,
+                105,
+                118,
+                82,
+                121,
+                172,
+                105,
+                6,
+                0,
+                64,
+                148,
+                82,
+                163,
+                3,
+                118,
+                5,
+                0,
+                136,
+                82,
+                106,
+                116,
+                162,
+                105,
+                176,
+                117,
+                117,
+                81,
+                103,
+                106,
+                104,
+                104
+              ],
+              "template_hash": [
+                83,
+                158,
+                236,
+                103,
+                130,
+                145,
+                131,
+                80,
+                83,
+                129,
+                124,
+                253,
+                240,
+                224,
+                219,
+                54,
+                154,
+                76,
+                124,
+                236,
+                118,
+                99,
+                56,
+                193,
+                156,
+                87,
+                238,
+                29,
+                253,
+                102,
+                159,
+                90
               ],
               "state_span": {
                 "offset": 0,

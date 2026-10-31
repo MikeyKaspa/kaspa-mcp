@@ -30,6 +30,18 @@ const META: Record<string, { title: string; description: string; recommendedEntr
       "Arbiter (pkh) releases exact amount minus baked minerFee (300000 sompi) to buyer or seller P2PK.",
     recommendedEntry: "spend",
   },
+  lockbox: {
+    title: "Lockbox",
+    description:
+      "Time-locked savings jar: anyone can fund; owner withdraws only after unlockAt (tx.time). Great for forced savings.",
+    recommendedEntry: "withdraw",
+  },
+  softcap: {
+    title: "SoftCapJar",
+    description:
+      "Soft-cap crowdfund jar: anyone funds; owner claims early only if this UTXO ≥ goalSompi; after deadline owner may close for any amount. Contributors are NOT auto-refunded.",
+    recommendedEntry: "claim",
+  },
 };
 
 let cache: TemplateInfo[] | null = null;
