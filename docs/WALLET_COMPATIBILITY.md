@@ -38,3 +38,6 @@ Neither can connect to `https://kaspa-mcp…/sign/…` and sign a fund or covena
 | `window.kastle` | `signAndBroadcastTx` | `signTx` → finalize unlock → wasm `RpcClient.submitTransaction` |
 | `window.kaspire` | `signPskt` → `pushTx` (or request bridge) | same pattern as KasWare |
 
+
+## iPhone deep-dive
+See [IPHONE_SIGNING_PATHS.md](./IPHONE_SIGNING_PATHS.md) (KasWare Mini App, our TMA wrapper, KasSigner PSKB).
