@@ -1,8 +1,9 @@
 pragma silverscript ^0.1.0;
 
-// All-or-nothing per-backer pledge (authorized_by pt266u).
-// Each backer → unique P2SH. Creator claim co-spends pledges; sum(inputs) >= goal.
-// After deadline each backer reclaim. See comments in prior revision for trust notes.
+// All-or-nothing per-backer pledge. Sibling inputs must share this redeem
+// template with only backerPkh varying (prefix/suffix via scriptSig substr).
+// redeemLen=1088 backerOff=916 — must match silverc output.
+// fee is a MINIMUM — output may pay more to cover compute mass.
 contract AoNPledge(
     byte[32] ownerPkh,
     byte[32] backerPkh,
@@ -13,18 +14,32 @@ contract AoNPledge(
     entry claim(pubkey pk, sig s) {
         require(blake2b(byte[](pk)) == ownerPkh);
         require(checkSig(s, pk));
-        // Keep campaignTag in the committed script (distinct P2SH per campaign).
         require(campaignTag == campaignTag);
+
+        int active = this.activeInputIndex;
+        int activeLen = OpTxInputScriptSigLen(active);
+        int redeemLen = 1088;
+        int backerOff = 916;
+        int backerEnd = 948;
+        require(activeLen >= redeemLen);
+        byte[] pref = OpTxInputScriptSigSubstr(active, activeLen - redeemLen, activeLen - redeemLen + backerOff);
+        byte[] suf = OpTxInputScriptSigSubstr(active, activeLen - redeemLen + backerEnd, activeLen);
+
         int total = 0;
         for (i, 0, tx.inputs.length, 8) {
             require(tx.inputs[i].scriptPubKey.length == 37);
+            int slen = OpTxInputScriptSigLen(i);
+            require(slen == activeLen);
+            require(OpTxInputScriptSigSubstr(i, slen - redeemLen, slen - redeemLen + backerOff) == pref);
+            require(OpTxInputScriptSigSubstr(i, slen - redeemLen + backerEnd, slen) == suf);
             total = total + tx.inputs[i].value;
         }
         require(total >= goalSompi);
         byte[36] toOwner = new ScriptPubKeyP2PK(pk);
         require(tx.outputs[0].scriptPubKey == byte[](toOwner));
-        int fee = 25000;
-        require(tx.outputs[0].value == total - fee);
+        int minFee = 300000;
+        require(tx.outputs[0].value <= total - minFee);
+        require(tx.outputs[0].value > 0);
         require(tx.outputs.length == 1);
     }
 
@@ -35,9 +50,10 @@ contract AoNPledge(
         require(campaignTag == campaignTag);
         byte[36] toBacker = new ScriptPubKeyP2PK(pk);
         require(tx.outputs[0].scriptPubKey == byte[](toBacker));
-        int fee = 25000;
+        int minFee = 300000;
         int val = tx.inputs[this.activeInputIndex].value;
-        require(tx.outputs[0].value == val - fee);
+        require(tx.outputs[0].value <= val - minFee);
+        require(tx.outputs[0].value > 0);
         require(tx.outputs.length == 1);
     }
 }

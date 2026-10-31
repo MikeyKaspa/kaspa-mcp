@@ -101,7 +101,7 @@ export const AON_POLICY = {
   reclaimRequiresAfterDeadline: true,
   reclaimRequiresBackerSig: true,
   claimAfterDeadlineRace: true, // SilverScript only supports tx.time >=
-  siblingRedeemNotFullyProvenOnChain: true,
-  message:
-    "Creator claim co-spends pledges and requires sum(inputs) ≥ goal. After deadline each backer reclaim. Claim cannot be CLTV-disabled after deadline (language limit).",
+  siblingRedeemNotFullyProvenOnChain: false,
+  siblingRedeemPrefixSuffixCheck: true,
+  message: "Creator claim co-spends pledges; each input redeem must match this campaign template with only backerPkh varying (on-chain scriptSig prefix/suffix). After deadline each backer reclaim. Claim cannot be CLTV-disabled after deadline (language limit).",
 };

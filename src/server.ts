@@ -914,16 +914,6 @@ export function createKaspaMcpServer(): McpServer {
         if (!resolved.ok) return err("network resolve failed");
         const network = resolved.network;
         const ownerAddress = a.ownerAddress?.trim() || a.fromAddress?.trim();
-        if (a.templateId === "aon_pledge" && isSharedPublicDemo()) {
-          return ok({
-            safety: SAFETY_BANNER,
-            warning: L1_UNAUDITED_WARNING,
-            refused: true,
-            reason: "crowdfund_security_review",
-            tellUser:
-              "Crowdfund coming soon — being security-tested. Do not fund aon_pledge on the public connector yet.",
-          });
-        }
         const resolvedBc = resolveTemplateBytecodeForFund({
           templateId: a.templateId,
           artifact: a.artifact,
@@ -2060,7 +2050,7 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
     "l1_aon_create_campaign",
     {
       description:
-        "Create a refundable all-or-nothing crowdfund campaign (aon_pledge). Currently gated on the public demo pending security review of sibling-pledge checks. Self-host may enable after fix.",
+        "Create a refundable all-or-nothing crowdfund campaign (aon_pledge). Backers reclaim after the deadline if the goal is missed. Returns campaignTag + instructions to add pledges.",
       inputSchema: {
         ownerAddress: z.string().describe("Creator testnet/mainnet receive address"),
         goalSompi: z.union([z.string(), z.number()]).describe("Goal in sompi (1 test KAS = 100000000)"),
@@ -2070,17 +2060,6 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
     },
     async (a) => {
       try {
-        if (isSharedPublicDemo()) {
-          return ok({
-            safety: SAFETY_BANNER,
-            warning: L1_UNAUDITED_WARNING,
-            refused: true,
-            reason: "crowdfund_security_review",
-            tellUser:
-              "Crowdfund coming soon — being security-tested. Do not use all-or-nothing crowdfund on the public connector until sibling-pledge checks are proven on chain.",
-            status: "disabled_pending_security_fix",
-          });
-        }
         const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
         const ask = needNetworkChoicePayload(resolved);
         if (ask) return ask;
@@ -2110,7 +2089,7 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
     "l1_aon_add_pledge",
     {
       description:
-        "Add a backer pledge to an all-or-nothing campaign. Gated on the public demo pending security review.",
+        "Add a backer pledge address to an all-or-nothing campaign and prepare a one-tap fund link for that backer.",
       inputSchema: {
         ownerAddress: z.string(),
         backerAddress: z.string(),
@@ -2124,17 +2103,6 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
     },
     async (a) => {
       try {
-        if (isSharedPublicDemo()) {
-          return ok({
-            safety: SAFETY_BANNER,
-            warning: L1_UNAUDITED_WARNING,
-            refused: true,
-            reason: "crowdfund_security_review",
-            tellUser:
-              "Crowdfund coming soon — being security-tested. Do not use all-or-nothing crowdfund on the public connector until sibling-pledge checks are proven on chain.",
-            status: "disabled_pending_security_fix",
-          });
-        }
         const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
         const ask = needNetworkChoicePayload(resolved);
         if (ask) return ask;
