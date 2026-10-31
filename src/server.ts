@@ -736,11 +736,6 @@ export function createKaspaMcpServer(): McpServer {
           if (isSharedPublicDemo()) {
             throw new SafetyError("autoSignBroadcast refused on shared demo — self-host + spending_wallet_create");
           }
-          if (!(await kaspaWasmAvailable())) {
-            throw new Error(
-              "autoSignBroadcast requires Node self-host (kaspa-wasm). Shared Workers use tap-to-approve instead.",
-            );
-          }
           if (!a.templateId) {
             throw new SafetyError(
               "autoSignBroadcast fund requires templateId from the reviewed allowlist: " +
@@ -875,11 +870,6 @@ export function createKaspaMcpServer(): McpServer {
           if (isSharedPublicDemo()) {
             throw new SafetyError("autoSignBroadcast refused on shared demo — self-host + spending_wallet_create");
           }
-          if (!(await kaspaWasmAvailable())) {
-            throw new Error(
-              "autoSignBroadcast requires Node self-host (kaspa-wasm). Shared Workers use tap-to-approve instead.",
-            );
-          }
           const result = await autoSpendCovenant({
             network,
             loaded,
@@ -965,8 +955,8 @@ export function createKaspaMcpServer(): McpServer {
       description:
         "SELF-HOST ONLY. Create a fresh dedicated Kaspa spending wallet for chat-deploy. " +
         "REQUIRES mainAddress (your cold/main wallet) — the only destination withdraw_all may use. " +
-        "Key is written to a local file (never echoed in chat JSON). Refused on shared demo. " +
-        "Never accepts a pasted main-wallet key/seed.",
+        "Node: key written to local file (not echoed). Cloudflare Worker: one-shot privateKeyHex + wrangler secret put steps. " +
+        "Refused on shared demo. Never accepts a pasted main-wallet key/seed.",
       inputSchema: {
         network: z.string().default("kaspa-l1-testnet-10"),
         mainAddress: z
@@ -995,8 +985,11 @@ export function createKaspaMcpServer(): McpServer {
           networkId: created.networkId,
           persistedTo: created.persistedTo,
           registryPath: created.registryPath,
+          // Worker one-shot only — omitted when file-persisted (Node)
+          ...(created.privateKeyHex ? { privateKeyHex: created.privateKeyHex } : {}),
           backupHint: created.backupHint,
           wranglerHint: created.wranglerHint,
+          setupSteps: created.setupSteps,
           allowlist: [...REVIEWED_TEMPLATE_IDS],
           nextSteps: [
             `Fund ${created.address} on ${network.isTestnet ? "TN10" : "mainnet (≤ cap)"}`,
@@ -1106,8 +1099,8 @@ export function createKaspaMcpServer(): McpServer {
     "l1_tipjar_chat_deploy",
     {
       description:
-        "SELF-HOST ONLY. Chat-deploy reviewed TipJar with spending wallet as owner: silverc → fund P2SH → registry. " +
-        "No wallet popup. Requires spending_wallet_create({ mainAddress }) + funded address + SILVERC_PATH.",
+        "SELF-HOST ONLY. Chat-deploy reviewed TipJar with spending wallet as owner: compile (silverc or Worker rebind) → fund P2SH → registry. " +
+        "No wallet popup. Requires spending_wallet_create({ mainAddress }) + funded address. Pure-JS signer works on free Cloudflare Workers.",
       inputSchema: {
         network: z.string().default("kaspa-l1-testnet-10"),
         amountSompi: z.union([z.string(), z.number()]).default("100000000").describe("Fund amount (default 1 tKAS)"),
@@ -1119,19 +1112,23 @@ export function createKaspaMcpServer(): McpServer {
         if (isSharedPublicDemo()) {
           throw new SafetyError("l1_tipjar_chat_deploy refused on shared demo — self-host");
         }
-        if (!isSilvercAvailable()) {
-          throw new Error(`silverc required for owner-bound TipJar. ${silvercCompileHint()}`);
-        }
         const network = getNetwork(a.network);
         const key = assertCanAutoSign(network);
         const ownerAddress = await addressForKey(key.hex, network);
         const pkhHex = await ownerPkhHex(key.hex);
-        const pkh = Array.from(Buffer.from(pkhHex, "hex"));
         const tipjar = getTemplate("tipjar");
-        const loaded = compileSilverscript({
-          source: tipjar.source,
-          constructorArgs: [{ kind: "bytes", value: pkh }],
-        });
+        let loaded;
+        if (isSilvercAvailable()) {
+          const pkh = Array.from(Buffer.from(pkhHex, "hex"));
+          loaded = compileSilverscript({
+            source: tipjar.source,
+            constructorArgs: [{ kind: "bytes", value: pkh }],
+          });
+        } else {
+          // Worker / no silverc: rebind bundled TipJar demo bytecode (byte-identical to silverc).
+          const { rebindTipjarOwnerPkh } = await import("./l1/artifact.js");
+          loaded = rebindTipjarOwnerPkh(tipjar.loadedExample, pkhHex);
+        }
         const funded = await autoFundCovenant({
           network,
           bytecode: loaded.bytecode,
@@ -1145,11 +1142,9 @@ export function createKaspaMcpServer(): McpServer {
           mode: "spending_wallet_tipjar_deploy",
           ownerAddress,
           ownerPkhHex: pkhHex,
-          artifact: {
-            entries: loaded.entries,
-            bytecodeHex: loaded.bytecodeHex,
-            contractName: loaded.contractName,
-          },
+          artifact: loaded.artifact,
+          contractName: loaded.contractName,
+          bytecodeHex: loaded.bytecodeHex,
           ...funded,
           next: "Wait for P2SH UTXO, then l1_prepare_spend autoSignBroadcast entry withdraw (args [null,null]) to spending address or mainAddress. Or spending_wallet_withdraw_all.",
         });

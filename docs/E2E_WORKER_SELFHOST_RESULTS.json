@@ -1,0 +1,61 @@
+{
+  "ok": true,
+  "base": "https://kaspa-mcp-selfhost.kaspa-mcp.workers.dev",
+  "steps": [
+    {
+      "step": "health",
+      "pureJsSigner": true,
+      "spendingWallet": true
+    },
+    {
+      "step": "status",
+      "address": "kaspatest:qrs89htrl7hc785tz6r9985xfp7xz3267wn5pr3wd7e863xddqqkcccpth6zv",
+      "mainAddress": "kaspatest:qza6ey35a278ft60rhvjfna96dznge4qrlw9zgr7zedngjzqvd97u9t9lscq6",
+      "balanceSompi": "500000000",
+      "configured": true
+    },
+    {
+      "step": "tipjar_chat_deploy",
+      "txid": "3699167bfe3987a97b69053387a7a8bb8ac45f49df1fd7e34010130c7e066f69",
+      "p2shAddress": "kaspatest:ppqj4hymws848k5paaqdd36lmvqfn7fvmuhxh8xdrqcxknwu2hwk5tezyn9wl",
+      "explorer": "https://tn10.kaspa.stream/transactions/3699167bfe3987a97b69053387a7a8bb8ac45f49df1fd7e34010130c7e066f69"
+    },
+    {
+      "step": "tipjar_utxo",
+      "index": 0,
+      "amountSompi": "100000000"
+    },
+    {
+      "step": "fund_timeout_vault",
+      "txid": "a08d6fc8b6b23e95783b9e9139cf3516b99f6dae30583eaaeb12c4672ba2e531",
+      "p2shAddress": "kaspatest:pzw2pu32alulge2gv0phjpavgyjlc9plj2vm94lf8vyav3jl9madu3x9qadk5",
+      "explorer": "https://tn10.kaspa.stream/transactions/a08d6fc8b6b23e95783b9e9139cf3516b99f6dae30583eaaeb12c4672ba2e531"
+    },
+    {
+      "step": "fund_escrow",
+      "txid": "529b44015d1296d4ab730b1ee27776364b8ce5dd8f8a4d5a7899953965509144",
+      "p2shAddress": "kaspatest:pq7efuqrnlk38q94jlrv4qqxhscuul500h7x73yfgzk5vcw2t6ytz09us4frv",
+      "explorer": "https://tn10.kaspa.stream/transactions/529b44015d1296d4ab730b1ee27776364b8ce5dd8f8a4d5a7899953965509144"
+    },
+    {
+      "step": "tipjar_withdraw",
+      "txid": "88f342b2146ca8586793c6c248367deaa3f440d663d5ea677a78bb00307dbde6",
+      "explorer": "https://tn10.kaspa.stream/transactions/88f342b2146ca8586793c6c248367deaa3f440d663d5ea677a78bb00307dbde6"
+    },
+    {
+      "step": "withdraw_all",
+      "txid": "5e2cf1d26ca0cb05005d1977ea14df1d3588d1a78c447650d4b796e6ef20509d",
+      "txids": [
+        "86d88063b2e732bd117fe818e4ee0a4bbea60ee6ea2304fd80af8d417fb37d58",
+        "5e2cf1d26ca0cb05005d1977ea14df1d3588d1a78c447650d4b796e6ef20509d"
+      ],
+      "note": "Confirmed via REST after submit race (API returned reject but txs landed)",
+      "destination": "kaspatest:qza6ey35a278ft60rhvjfna96dznge4qrlw9zgr7zedngjzqvd97u9t9lscq6",
+      "explorer": "https://tn10.kaspa.stream/transactions/5e2cf1d26ca0cb05005d1977ea14df1d3588d1a78c447650d4b796e6ef20509d"
+    }
+  ],
+  "at": "2026-10-31T00:58:34.010Z",
+  "bundleKiB": 2348.05,
+  "differentialTests": "pure-signer.diff.test.ts: 48 random txs sighash (wasm sig verifies pure digest); tipjar-rebind matches silverc; 79/79 vitest",
+  "note": "Self-host Worker TN10 e2e green. Shared demo deploy next."
+}

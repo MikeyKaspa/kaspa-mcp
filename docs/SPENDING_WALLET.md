@@ -18,18 +18,31 @@ on the shared demo Worker, never their main KasWare/Kaspium seed.
 
 Tap-to-approve (`tapToApprove.url`) remains the default non-custodial path.
 
-## Setup (Node self-host — required for L1 auto-sign)
+## Setup (Cloudflare Worker — free tier, pure-JS signer)
 
-Free Cloudflare Workers cannot load Node `kaspa-wasm`, so **L1 auto-sign needs `npm start` (or equivalent Node)**. Worker secrets are fine for storing the key on *your* account, but chat-deploy signing today runs where wasm works.
+Free Workers cannot load Node `kaspa-wasm`. This repo ships a **pure-JS L1 signer**
+(`src/l1/pure`) so auto-sign + tipjar chat-deploy run on **your** free Worker.
 
 ```bash
 git clone https://github.com/MikeyKaspa/kaspa-mcp && cd kaspa-mcp
 npm install && npm test
-# Optional: SILVERC_PATH=/path/to/silverc for TipJar owner compile
-npm start   # http://127.0.0.1:8787/mcp
+# One-click: use the Deploy to Cloudflare button in README, OR:
+npx wrangler deploy -c wrangler.selfhost.toml   # separate name from shared demo
 ```
 
-In chat: `spending_wallet_create` → fund the address (TN10 faucet) → `l1_tipjar_chat_deploy`.
+In chat against **your** Worker MCP URL:
+
+1. `spending_wallet_create({ mainAddress: "kaspatest:…" })` — returns address + **one-shot** `privateKeyHex`
+2. Set the secret (never commit / never paste into shared demo):
+   `printf '%s' '0x…' | npx wrangler secret put KASPA_SPENDING_PRIVATE_KEY -c wrangler.selfhost.toml`
+3. Fund the spending address (TN10 faucet)
+4. `l1_tipjar_chat_deploy` or `l1_prepare_fund` with `autoSignBroadcast: true` + reviewed `templateId`
+
+### Node self-host (optional)
+
+```bash
+npm start   # http://127.0.0.1:8787/mcp — key file persist, optional SILVERC_PATH
+```
 
 Env:
 
@@ -67,3 +80,19 @@ the workable path; client-side signing is listed on the roadmap.
 
 ## Security
 See [SPENDING_WALLET_SECURITY.md](./SPENDING_WALLET_SECURITY.md) for threat model, caps, and allowlist.
+
+## Cloudflare Worker self-host (pure-JS signer)
+
+Free Workers cannot load Node `kaspa-wasm`. This repo ships a **pure-JS L1 signer**
+(`src/l1/pure`) — Blake2b TransactionSigningHash + Schnorr (`@noble/curves`) + P2SH wrap —
+differential-tested against kaspa-wasm.
+
+```bash
+# Separate worker name (do not overwrite the shared demo):
+npx wrangler deploy -c wrangler.selfhost.toml
+# In chat on THAT worker: spending_wallet_create({ mainAddress })
+# Copy the one-shot key → set secret on YOUR account:
+printf '%s' '0xYOUR_KEY' | npx wrangler secret put KASPA_SPENDING_PRIVATE_KEY -c wrangler.selfhost.toml
+```
+
+Shared demo (`MCP_PUBLIC=true`) never loads a spending key.

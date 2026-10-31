@@ -19,9 +19,9 @@ on upstream / hardware. Agents should keep proposing these without waiting to be
 
 | Item | Status | Notes |
 |------|--------|-------|
-| **`self_host` guided tool** | Deferred | One-shot MCP tool that prints Deploy-to-Cloudflare + `wrangler secret put` + MCP URL checklist (no remote deploy from shared demo). |
+| **`self_host` guided tool** | Partial | `spending_wallet_create` returns `setupSteps` + `wranglerHint`; Deploy-to-Cloudflare button in README. Full guided MCP checklist still deferred. |
 | **Worker L1 auto-sign via web wasm assets** | Deferred | Free Workers can’t load Node wasm; investigate instantiating `/kaspa-wasm` inside the Worker for spending-wallet broadcast without Node. |
-| **One-click CF deploy that sets spending secret** | Partial | Button deploys code; secret still needs `wrangler secret put` on the user’s account (Cloudflare won’t let a public demo write their secrets). |
+| **One-click CF deploy that sets spending secret** | Partial | Button deploys code; `spending_wallet_create` guides `wrangler secret put` on the user’s account (Cloudflare won’t let a public demo write their secrets). |
 | **Compile on Worker (solc / silverc)** | Blocked | `eval` / no official WASM silverc on free Workers. |
 
 ## Other UX gaps (proactive)

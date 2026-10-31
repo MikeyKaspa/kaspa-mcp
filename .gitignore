@@ -43,3 +43,7 @@ Thumbs.db
 
 .kaspa-spending.registry.json
 .e2e-spending*
+
+.e2e-worker-spending.secret
+.e2e-spending.key
+.e2e-spending.registry.json

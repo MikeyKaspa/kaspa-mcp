@@ -15,7 +15,6 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { SafetyError } from "./safety.js";
-import { loadKaspa } from "./l1/kaspa-sdk.js";
 import type { NetworkInfo } from "./types.js";
 
 export const SPENDING_ENV_KEY = "KASPA_SPENDING_PRIVATE_KEY";
@@ -158,9 +157,16 @@ export type SpendingRegistry = {
 
 export function readRegistry(): SpendingRegistry | null {
   if (isSharedPublicDemo()) return null;
+  const fromEnv = process.env.KASPA_SPENDING_REGISTRY_JSON;
+  if (fromEnv) {
+    try {
+      const raw = JSON.parse(fromEnv) as SpendingRegistry;
+      if (raw?.version === 1 && typeof raw.mainAddress === "string") return raw;
+    } catch { /* ignore */ }
+  }
   const path = registryFilePath();
-  if (!existsSync(path)) return null;
   try {
+    if (!existsSync(path)) return null;
     const raw = JSON.parse(readFileSync(path, "utf8")) as SpendingRegistry;
     if (raw?.version !== 1 || typeof raw.mainAddress !== "string") return null;
     return raw;
@@ -171,13 +177,32 @@ export function readRegistry(): SpendingRegistry | null {
 
 export function writeRegistry(reg: SpendingRegistry): string {
   assertNotSharedDemo("write spending registry");
+  process.env.KASPA_SPENDING_REGISTRY_JSON = JSON.stringify(reg);
   const path = registryFilePath();
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(reg, null, 2) + "\n", { mode: 0o600 });
+  let result = "memory";
   try {
-    chmodSync(path, 0o600);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, JSON.stringify(reg, null, 2) + "\n", { mode: 0o600 });
+    try {
+      chmodSync(path, 0o600);
+    } catch {
+      /* ignore */
+    }
+    result = path;
   } catch {
-    /* ignore */
+    result = "memory";
+  }
+  return result;
+}
+
+/** Persist registry to file/env and Cloudflare KV when the Worker hook is set. */
+export async function persistRegistry(reg: SpendingRegistry): Promise<string> {
+  const path = writeRegistry(reg);
+  const hook = (globalThis as { __kaspaWriteRegistry?: (r: SpendingRegistry) => Promise<void> })
+    .__kaspaWriteRegistry;
+  if (hook) {
+    await hook(reg);
+    return path === "memory" ? "kv:spending-registry" : path;
   }
   return path;
 }
@@ -191,12 +216,12 @@ export function assertReviewedTemplate(templateId: string): asserts templateId i
   }
 }
 
-export function recordCovenant(opts: {
+export async function recordCovenant(opts: {
   p2shAddress: string;
   templateId: ReviewedTemplateId;
   fundTxid?: string;
   bytecodeHashHex?: string;
-}): SpendingRegistry {
+}): Promise<SpendingRegistry> {
   const reg = readRegistry();
   if (!reg) {
     throw new SafetyError(
@@ -212,7 +237,7 @@ export function recordCovenant(opts: {
       createdAt: new Date().toISOString(),
     });
   }
-  writeRegistry(reg);
+  await persistRegistry(reg);
   return reg;
 }
 
@@ -255,22 +280,22 @@ export async function addressForKey(
   privateKeyHex: string,
   network: NetworkInfo,
 ): Promise<string> {
-  const kaspa = await loadKaspa();
+  const { privateKeyToAddress } = await import("./l1/pure/sign.js");
   const networkId = network.id.includes("mainnet") || !network.isTestnet ? "mainnet" : "testnet-10";
-  const key = new kaspa.PrivateKey(privateKeyHex.replace(/^0x/, ""));
-  return key.toKeypair().toAddress(networkId).toString();
+  return privateKeyToAddress(privateKeyHex, networkId);
 }
 
 export async function xonlyPubHex(privateKeyHex: string): Promise<string> {
-  const kaspa = await loadKaspa();
-  const key = new kaspa.PrivateKey(privateKeyHex.replace(/^0x/, ""));
-  return key.toPublicKey().toXOnlyPublicKey().toString();
+  const { privateKeyToXonly } = await import("./l1/pure/sign.js");
+  const { bytesToHex } = await import("@noble/hashes/utils.js");
+  return bytesToHex(privateKeyToXonly(privateKeyHex));
 }
 
 export async function ownerPkhHex(privateKeyHex: string): Promise<string> {
   const { blake2b } = await import("@noble/hashes/blake2.js");
+  const { bytesToHex } = await import("@noble/hashes/utils.js");
   const xonly = Buffer.from(await xonlyPubHex(privateKeyHex), "hex");
-  return Buffer.from(blake2b(xonly, { dkLen: 32 })).toString("hex");
+  return bytesToHex(blake2b(xonly, { dkLen: 32 }));
 }
 
 export type SpendingStatus = {
@@ -333,11 +358,13 @@ export type CreateResult = {
   address: string;
   mainAddress: string;
   networkId: string;
-  persistedTo: string;
+  persistedTo?: string;
   registryPath: string;
-  /** Never includes the raw key — backup via local file / wrangler from that file. */
+  /** Worker one-shot only (no filesystem). Omitted when key file persisted. */
+  privateKeyHex?: string;
   backupHint: string;
   wranglerHint: string;
+  setupSteps: string[];
   warning: string;
 };
 
@@ -371,18 +398,34 @@ export async function createSpendingWallet(opts: {
     );
   }
 
-  const kaspa = await loadKaspa();
-  const kp = kaspa.Keypair.random();
-  const privateKeyHex = normalizeHexKey(`0x${String(kp.privateKey).replace(/^0x/, "")}`);
+  const { bytesToHex } = await import("@noble/hashes/utils.js");
+  const sk = new Uint8Array(32);
+  crypto.getRandomValues(sk);
+  if (sk.every((b) => b === 0)) sk[31] = 1;
+  const privateKeyHex = normalizeHexKey(`0x${bytesToHex(sk)}`);
   const address = await addressForKey(privateKeyHex, opts.network);
 
-  if (opts.persist === false) {
+  const onWorker =
+    typeof (globalThis as { navigator?: { userAgent?: string } }).navigator?.userAgent === "string" &&
+    (globalThis as { navigator: { userAgent: string } }).navigator.userAgent.includes("Cloudflare");
+  if (opts.persist === false && !onWorker) {
     throw new SafetyError(
-      "persist=false is refused for bomb-proof mode — key must be written to a local file (not echoed in chat). " +
-        "Omit persist or set persist=true.",
+      "persist=false is refused on Node — key must be written to a local file (not echoed in chat).",
     );
   }
-  const persistedTo = persistSpendingKey(privateKeyHex);
+
+  const canWriteFile =
+    typeof process !== "undefined" && !!process.versions?.node && !onWorker;
+
+  let persistedTo: string | undefined;
+  let privateKeyOnce: string | undefined;
+  if (canWriteFile) {
+    persistedTo = persistSpendingKey(privateKeyHex);
+  } else {
+    // Worker (or non-Node): one-shot reveal for wrangler secret put
+    privateKeyOnce = privateKeyHex;
+  }
+
   const reg: SpendingRegistry = {
     version: 1,
     mainAddress: opts.mainAddress.trim(),
@@ -391,7 +434,7 @@ export async function createSpendingWallet(opts: {
     createdAt: new Date().toISOString(),
     covenants: [],
   };
-  const registryPath = writeRegistry(reg);
+  const registryPath = await persistRegistry(reg);
 
   return {
     address,
@@ -399,8 +442,25 @@ export async function createSpendingWallet(opts: {
     networkId: opts.network.id,
     persistedTo,
     registryPath,
-    backupHint: `Key written to ${persistedTo} (mode 600). Copy that file offline; never paste the key into chat.`,
-    wranglerHint: `On YOUR Cloudflare account only: npx wrangler secret put ${SPENDING_ENV_KEY} < ${persistedTo}`,
+    ...(privateKeyOnce ? { privateKeyHex: privateKeyOnce } : {}),
+    backupHint: privateKeyOnce
+      ? `SAVE THIS KEY NOW (shown once). On YOUR Cloudflare account run:\n` +
+        `  printf '%s' '<paste-key-here>' | npx wrangler secret put ${SPENDING_ENV_KEY} -c wrangler.selfhost.toml\n` +
+        `Then reconnect MCP to https://<your-worker>.workers.dev/mcp and call spending_wallet_status.`
+      : `Key written to ${persistedTo} (mode 600). Never paste into chat.`,
+    wranglerHint: `printf '%s' '<key>' | npx wrangler secret put ${SPENDING_ENV_KEY} -c wrangler.selfhost.toml`,
+    setupSteps: privateKeyOnce
+      ? [
+          "1. Copy privateKeyHex from this response (one-shot; never logged by the Worker afterward).",
+          `2. In your clone: printf '%s' '0x…' | npx wrangler secret put ${SPENDING_ENV_KEY} -c wrangler.selfhost.toml`,
+          "3. Fund the spending address on TN10 (faucet or transfer).",
+          "4. Call l1_tipjar_chat_deploy or l1_prepare_fund with autoSignBroadcast + reviewed templateId.",
+          "5. spending_wallet_withdraw_all sweeps only to locked mainAddress.",
+        ]
+      : [
+          `1. Key is at ${persistedTo} — do not commit it.`,
+          "2. Fund the spending address, then l1_tipjar_chat_deploy.",
+        ],
     warning:
       "⚠️ Dedicated spending wallet created. Fund only what you can lose. " +
       `withdraw_all can only send to locked mainAddress (${reg.mainAddress}). ` +

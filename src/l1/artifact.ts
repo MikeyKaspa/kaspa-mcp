@@ -95,3 +95,59 @@ export function coerceBytecode(raw: unknown): Uint8Array {
   if (Array.isArray(raw)) return Uint8Array.from(raw as number[]);
   throw new Error("bytecode must be hex string or byte array");
 }
+
+/** TipJar demo artifact embeds this ownerPkh (blake2b of x-only 0x01 pubkey). */
+export const TIPJAR_DEMO_OWNER_PKH_HEX =
+  "9407263be9dc3c4b5b9afbd02ebb5d5cbda687dfb57c65c1816c8cdca9b677a0";
+
+/**
+ * Rebind TipJar example bytecode to a new ownerPkh without silverc.
+ * Byte-identical to `silverc … --constructor-args` for the TipJar template
+ * (single contiguous 32-byte push of ownerPkh).
+ */
+export function rebindTipjarOwnerPkh(
+  loaded: LoadedArtifact,
+  ownerPkhHex: string,
+): LoadedArtifact {
+  const hex = ownerPkhHex.replace(/^0x/, "").toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(hex)) {
+    throw new Error("ownerPkhHex must be 32-byte hex");
+  }
+  const demo = hexToBytes(TIPJAR_DEMO_OWNER_PKH_HEX);
+  const next = hexToBytes(hex);
+  const src = loaded.bytecode;
+  let idx = -1;
+  for (let i = 0; i <= src.length - 32; i++) {
+    let ok = true;
+    for (let j = 0; j < 32; j++) {
+      if (src[i + j] !== demo[j]) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) {
+      idx = i;
+      break;
+    }
+  }
+  if (idx < 0) {
+    throw new Error("TipJar demo ownerPkh not found in bytecode — recompile with silverc");
+  }
+  const bytecode = new Uint8Array(src);
+  bytecode.set(next, idx);
+  const artifact: SilAbiArtifact = structuredClone(loaded.artifact);
+  const contract = artifact.contracts[loaded.contractName]!;
+  contract.compiled = {
+    ...contract.compiled,
+    bytecode: Array.from(bytecode),
+  };
+  return {
+    artifact,
+    contractName: loaded.contractName,
+    contract,
+    bytecode,
+    bytecodeHex: bytesToHex(bytecode),
+    templateHashHex: loaded.templateHashHex,
+    entries: contract.entries,
+  };
+}

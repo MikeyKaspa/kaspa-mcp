@@ -1,0 +1,23 @@
+# Self-host spending wallet Worker (separate name from shared demo).
+# Deploy: npx wrangler deploy -c wrangler.selfhost.toml
+# Secret: printf '%s' '0x…' | npx wrangler secret put KASPA_SPENDING_PRIVATE_KEY -c wrangler.selfhost.toml
+name = "kaspa-mcp-selfhost"
+main = "src/worker.ts"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[vars]
+MCP_PUBLIC = "false"
+KASPA_L1_MAINNET_WRITES = "1"
+KASPA_L1_BROWSER_BUILD = "0"
+RATE_LIMIT_ENABLED = "false"
+
+[[kv_namespaces]]
+binding = "SIGN_SESSIONS"
+id = "253c96421f8b44fdb0c10fc0e46af206"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/mcp", "/mcp/*", "/api/*", "/health", "/sign", "/sign/*", "!/sign/app.js", "!/sign/app.css", "!/sign/l1-build.js"]

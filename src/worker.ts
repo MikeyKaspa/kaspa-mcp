@@ -23,7 +23,16 @@ import {
 export interface Env extends RateLimitEnv {
   MCP_PUBLIC?: string;
   KASPA_L1_MAINNET_WRITES?: string;
-  SIGN_SESSIONS?: { put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>; get(key: string): Promise<string | null> };
+  KASPA_L1_BROWSER_BUILD?: string;
+  /** Self-host only — never set on shared demo */
+  KASPA_SPENDING_PRIVATE_KEY?: string;
+  KASPA_SPENDING_MAINNET?: string;
+  KASPA_SPENDING_MAX_KAS?: string;
+  KASPA_SPENDING_MAX_TX_KAS?: string;
+  SIGN_SESSIONS?: {
+    put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
+    get(key: string): Promise<string | null>;
+  };
   ASSETS?: { fetch(request: Request | string): Promise<Response> };
 }
 
@@ -46,6 +55,30 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
+    // Mirror Worker secrets/vars into process.env for shared modules (nodejs_compat).
+    // Shared demo: MCP_PUBLIC=true ⇒ spending key loader returns null even if mis-set.
+    if (env.MCP_PUBLIC) process.env.MCP_PUBLIC = env.MCP_PUBLIC;
+    if (env.KASPA_L1_MAINNET_WRITES) process.env.KASPA_L1_MAINNET_WRITES = env.KASPA_L1_MAINNET_WRITES;
+    if (env.KASPA_L1_BROWSER_BUILD) process.env.KASPA_L1_BROWSER_BUILD = env.KASPA_L1_BROWSER_BUILD;
+    if (env.KASPA_SPENDING_PRIVATE_KEY && env.MCP_PUBLIC !== "true" && env.MCP_PUBLIC !== "1") {
+      process.env.KASPA_SPENDING_PRIVATE_KEY = env.KASPA_SPENDING_PRIVATE_KEY;
+    } else {
+      delete process.env.KASPA_SPENDING_PRIVATE_KEY;
+    }
+    if (env.KASPA_SPENDING_MAINNET) process.env.KASPA_SPENDING_MAINNET = env.KASPA_SPENDING_MAINNET;
+    if (env.KASPA_SPENDING_MAX_KAS) process.env.KASPA_SPENDING_MAX_KAS = env.KASPA_SPENDING_MAX_KAS;
+    if (env.KASPA_SPENDING_MAX_TX_KAS) process.env.KASPA_SPENDING_MAX_TX_KAS = env.KASPA_SPENDING_MAX_TX_KAS;
+
+    if (env.SIGN_SESSIONS) {
+      (globalThis as { __kaspaWriteRegistry?: (r: unknown) => Promise<void> }).__kaspaWriteRegistry = async (r) => {
+        const s = JSON.stringify(r);
+        process.env.KASPA_SPENDING_REGISTRY_JSON = s;
+        await env.SIGN_SESSIONS!.put("spending-registry", s);
+      };
+      const existing = await env.SIGN_SESSIONS.get("spending-registry");
+      if (existing) process.env.KASPA_SPENDING_REGISTRY_JSON = existing;
+    }
+
     if (request.method === "OPTIONS") {
       return withCors(new Response(null, { status: 204 }));
     }
@@ -61,9 +94,10 @@ export default {
           silverscriptCompileOnWorker: false,
           l1MainnetPrepare: env.KASPA_L1_MAINNET_WRITES === "1" || env.KASPA_L1_MAINNET_WRITES === "true",
           signSessions: Boolean(env.SIGN_SESSIONS),
-          spendingWallet: false, // shared demo never holds spending keys
+          spendingWallet: Boolean(env.KASPA_SPENDING_PRIVATE_KEY) && env.MCP_PUBLIC !== "true",
+          pureJsSigner: true,
           compileHint:
-            "Workers: no solc/silverc. L1 prepare = browser_build via /kaspa-wasm assets + tap link. Self-host npm start for Node prepare + silverc.",
+            "Workers: pure-JS L1 signer for self-host auto-sign (secret on YOUR account). Shared demo is keyless (MCP_PUBLIC). No solc/silverc on Worker — TipJar owner rebind built-in; other templates use bundled artifacts.",
         }),
       );
     }
