@@ -11,13 +11,16 @@ describe("self_host guide", () => {
     else process.env.MCP_PUBLIC = prev;
   });
 
-  it("start explains cloudflare vs local without leaking keys", async () => {
+  it("start gives one-command deploy and You do / I do without leaking keys", async () => {
     const r = await runSelfHostGuide({ step: "start" });
     expect(r.sharedDemo).toBe(true);
     expect(JSON.stringify(r)).not.toMatch(/0x[0-9a-fA-F]{64}/);
-    expect(r.overviewSteps).toBeTruthy();
+    expect(r.youDo).toBeTruthy();
+    expect(r.iDo).toBeTruthy();
+    expect(String(r.commands || r.oneCommandDeploy || "")).toMatch(/selfhost:setup|kaspa-mcp/);
+    expect(String(r.tipAlwaysAllow || "")).toMatch(/Always allow/i);
     expect(String(r.trapToAvoid || "")).toMatch(/keyless|no-popup|selfhost/i);
-    expect(r.beforeYouStart).toBeTruthy();
+    expect(JSON.stringify(r)).not.toMatch(/\bNode\b/);
   });
 
   it("deploy cloudflare gives copy-paste wrangler.selfhost / selfhost:setup commands", async () => {

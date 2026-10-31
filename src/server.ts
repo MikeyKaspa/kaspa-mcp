@@ -52,6 +52,7 @@ import { compileSilverscript, isSilvercAvailable, silvercCompileHint } from "./l
 import { coerceBytecode } from "./l1/artifact.js";
 import { resolveTemplateBytecodeForFund } from "./l1/resolve-template-bytecode.js";
 import { connectorVersion, checkAgainstLatest, scheduleLatestCheck, rememberLatestCheck, versionNoteIfBehind } from "./version.js";
+import { createAoNCampaign, addAoNPledge, AON_POLICY } from "./crowdfund.js";
 import {
   createSpendingWallet,
   spendingWalletStatus,
@@ -866,9 +867,10 @@ export function createKaspaMcpServer(): McpServer {
     "l1_prepare_fund",
     {
       description:
-        "Prepare a ONE-TAP fund link for a P2SH covenant (public demo OK). Always returns tapToApprove.url — never tell users to send manually from KasWare. " +
-        "For tipjar: ALWAYS rebinds bytecode to ownerAddress (defaults to fromAddress) so the funded P2SH matches the owner-bound jar (never the demo template). " +
-        "Pass expectedP2shAddress if you already showed the user an address — mismatch refuses. autoSignBroadcast=self-host only. UNAUDITED.",
+        "Prepare a ONE-TAP fund link (public demo OK). Always returns tapToApprove.url — never tell users to send manually. " +
+        "ALWAYS rebinds the template to the exact owner/params you pass so the funded address matches what you showed the user. " +
+        "Pass expectedP2shAddress whenever you already showed an address — mismatch refuses. " +
+        "lockbox requires unlockAtMs; tip goal jar / aon_pledge require goalSompi+deadlineMs; escrow requires parties. UNAUDITED.",
       inputSchema: {
         network: z
           .string()
@@ -889,7 +891,18 @@ export function createKaspaMcpServer(): McpServer {
         expectedP2shAddress: z
           .string()
           .optional()
-          .describe("If you already showed the user a P2SH, pass it here — fund refuses on mismatch"),
+          .describe("If you already showed the user an address, pass it here — fund refuses on mismatch"),
+        unlockAtMs: z.union([z.string(), z.number()]).optional().describe("lockbox: exact unlock time (unix ms) you already showed"),
+        goalSompi: z.union([z.string(), z.number()]).optional().describe("tip goal jar / aon_pledge: goal in sompi (1 test KAS = 100000000)"),
+        deadlineMs: z.union([z.string(), z.number()]).optional().describe("tip goal jar / aon_pledge: deadline unix ms"),
+        backerAddress: z.string().optional().describe("aon_pledge: backer receive address"),
+        backerPkhHex: z.string().optional(),
+        campaignTagHex: z.string().optional().describe("aon_pledge: shared 32-byte hex campaign id"),
+        recipientXonlyHex: z.string().optional(),
+        senderXonlyHex: z.string().optional(),
+        arbiterAddress: z.string().optional(),
+        buyerXonlyHex: z.string().optional(),
+        sellerXonlyHex: z.string().optional(),
         autoSignBroadcast: z.boolean().optional().describe("Self-host spending wallet: sign+broadcast. Ignored/refused on shared demo."),
       },
     },
@@ -909,6 +922,17 @@ export function createKaspaMcpServer(): McpServer {
           ownerAddress,
           ownerPkhHex: a.ownerPkhHex,
           expectedP2shAddress: a.expectedP2shAddress,
+          unlockAtMs: a.unlockAtMs != null ? BigInt(a.unlockAtMs as string | number) : undefined,
+          goalSompi: a.goalSompi != null ? BigInt(a.goalSompi as string | number) : undefined,
+          deadlineMs: a.deadlineMs != null ? BigInt(a.deadlineMs as string | number) : undefined,
+          backerAddress: a.backerAddress,
+          backerPkhHex: a.backerPkhHex,
+          campaignTagHex: a.campaignTagHex,
+          recipientXonlyHex: a.recipientXonlyHex,
+          senderXonlyHex: a.senderXonlyHex,
+          arbiterAddress: a.arbiterAddress,
+          buyerXonlyHex: a.buyerXonlyHex,
+          sellerXonlyHex: a.sellerXonlyHex,
           networkId: network.id,
         });
         const loaded = resolvedBc.loaded;
@@ -2009,10 +2033,144 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
           safety: SAFETY_BANNER,
           ...ver,
           latestCheck: check,
+          message: check.message || (check.behind ? undefined : "You're up to date"),
           update:
             check.behind
               ? { step: "self_host", args: { step: "update" }, neverAutoUpdate: true }
               : undefined,
+        });
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+
+  server.registerTool(
+    "l1_aon_create_campaign",
+    {
+      description:
+        "Create a refundable all-or-nothing crowdfund campaign (aon_pledge). Backers reclaim after the deadline if the goal is missed. Returns campaignTag + instructions to add pledges.",
+      inputSchema: {
+        ownerAddress: z.string().describe("Creator testnet/mainnet receive address"),
+        goalSompi: z.union([z.string(), z.number()]).describe("Goal in sompi (1 test KAS = 100000000)"),
+        deadlineMs: z.union([z.string(), z.number()]).optional().describe("Unix ms deadline; default now+7d"),
+        network: z.string().optional(),
+      },
+    },
+    async (a) => {
+      try {
+        const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
+        const ask = needNetworkChoicePayload(resolved);
+        if (ask) return ask;
+        if (!resolved.ok) return err("network resolve failed");
+        const c = createAoNCampaign({
+          ownerAddress: a.ownerAddress,
+          goalSompi: a.goalSompi,
+          deadlineMs: a.deadlineMs,
+          network: resolved.network.isTestnet ? "testnet-10" : "mainnet",
+        });
+        return ok({
+          safety: SAFETY_BANNER,
+          warning: L1_UNAUDITED_WARNING,
+          policy: AON_POLICY,
+          campaign: c,
+          tellUser:
+            "Campaign created. Add each backer with l1_aon_add_pledge (unique fund address per backer). When total pledged ≥ goal, claim with a multi-input spend; if the deadline passes first, each backer reclaim.",
+          next: 'l1_aon_add_pledge({ campaignTagHex, ownerAddress, backerAddress, goalSompi, deadlineMs })',
+        });
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "l1_aon_add_pledge",
+    {
+      description:
+        "Add a backer pledge address to an all-or-nothing campaign and prepare a one-tap fund link for that backer.",
+      inputSchema: {
+        ownerAddress: z.string(),
+        backerAddress: z.string(),
+        campaignTagHex: z.string(),
+        goalSompi: z.union([z.string(), z.number()]),
+        deadlineMs: z.union([z.string(), z.number()]),
+        amountSompi: z.union([z.string(), z.number()]).default("100000000"),
+        network: z.string().optional(),
+        fromAddress: z.string().optional().describe("Wallet funding the pledge; defaults to backerAddress"),
+      },
+    },
+    async (a) => {
+      try {
+        const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
+        const ask = needNetworkChoicePayload(resolved);
+        if (ask) return ask;
+        if (!resolved.ok) return err("network resolve failed");
+        const network = resolved.network;
+        const c = createAoNCampaign({
+          ownerAddress: a.ownerAddress,
+          goalSompi: a.goalSompi,
+          deadlineMs: a.deadlineMs,
+          network: network.isTestnet ? "testnet-10" : "mainnet",
+        });
+        c.campaignTagHex = a.campaignTagHex.replace(/^0x/, "").toLowerCase();
+        const pledge = addAoNPledge(c, a.backerAddress);
+        const fromAddress = a.fromAddress?.trim() || a.backerAddress.trim();
+        // Build fund link via existing prepare path
+        const resolvedBc = resolveTemplateBytecodeForFund({
+          templateId: "aon_pledge",
+          ownerAddress: a.ownerAddress,
+          backerAddress: a.backerAddress,
+          campaignTagHex: c.campaignTagHex,
+          goalSompi: a.goalSompi,
+          deadlineMs: a.deadlineMs,
+          expectedP2shAddress: pledge.p2shAddress,
+          networkId: network.id,
+        });
+        const l1Build = {
+          buildInBrowser: true as const,
+          kaspaNetwork: kaspaNetworkFor(network.id, network.isTestnet),
+          utxoApiBase: utxoApiBaseFor(network.id, network.isTestnet),
+          fromAddress,
+          amountSompi: String(a.amountSompi),
+          bytecodeHex: resolvedBc.bytecodeHex,
+          expectedP2shAddress: pledge.p2shAddress,
+          destinationAddress: pledge.p2shAddress,
+        };
+        const tapToApprove = await attachTapToApprove("l1-fund", network.id, {
+          l1Build,
+          meta: {
+            templateId: "aon_pledge",
+            contractName: "AoNPledge",
+            p2shAddress: pledge.p2shAddress,
+            expectedP2shAddress: pledge.p2shAddress,
+            campaignTagHex: c.campaignTagHex,
+            goalSompi: String(a.goalSompi),
+            deadlineMs: String(a.deadlineMs),
+            backerAddress: a.backerAddress,
+          },
+        });
+        const page = await createContractPage({
+          networkId: network.id,
+          templateId: "aon_pledge",
+          contractName: "AoNPledge",
+          p2shAddress: pledge.p2shAddress,
+          title: "Crowdfund pledge",
+          blurb: `All-or-nothing pledge. Goal ${a.goalSompi} sompi. Deadline ${a.deadlineMs}. Backer reclaim after deadline if goal missed.`,
+        });
+        return ok({
+          safety: SAFETY_BANNER,
+          warning: L1_UNAUDITED_WARNING,
+          policy: AON_POLICY,
+          pledge,
+          campaignTagHex: c.campaignTagHex,
+          goalSompi: String(a.goalSompi),
+          deadlineMs: String(a.deadlineMs),
+          tapToApprove,
+          sharePage: { url: page.url, id: page.record.id },
+          tellUser:
+            "Ready — not on chain until funded. Open the one-tap link to fund this backer's pledge address. Do not say it is live yet.",
         });
       } catch (e) {
         return err(e);
@@ -2112,8 +2270,8 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
     "l1_softcap_chat_deploy",
     {
       description:
-        "SELF-HOST ONLY. Chat-deploy SoftCapJar: anyone funds; owner claims early only if UTXO ≥ goalSompi; after deadline owner may close for any amount. " +
-        "Contributors are NOT auto-refunded (honest labeling). Default goal 1 tKAS, deadline now+7d. No popup.",
+        "SELF-HOST ONLY. Chat-deploy TipGoalJar (NOT a crowdfund — backers are NOT refunded). Owner claims early only if THIS UTXO ≥ goal; after deadline owner may close. " +
+        "For refundable all-or-nothing crowdfunding use aon_pledge. Default goal 1 test KAS, deadline now+7d.",
       inputSchema: {
         network: z.string().optional(),
         amountSompi: z.union([z.string(), z.number()]).default("100000000"),
@@ -2130,7 +2288,14 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
             warning: L1_UNAUDITED_WARNING,
             refused: true,
             reason: "shared_demo_keyless",
-            plainEnglish: "SoftCapJar chat-deploy needs YOUR own copy (self_host).",
+            plainEnglish:
+              "Tip goal jar is not a crowdfund (backers are not refunded). On the public connector I prepare a one-tap fund link — tell me your testnet address and goal.",
+            nextTool: {
+              name: "l1_prepare_fund",
+              argsHint:
+                '{ templateId: "softcap", fromAddress, ownerAddress, goalSompi, deadlineMs, amountSompi } → open tapToApprove.url',
+            },
+            betterCrowdfund: "For refundable all-or-nothing crowdfunding use aon_pledge.",
           });
         }
         const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
@@ -2174,13 +2339,13 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
           p2shAddress: funded.p2shAddress,
           fundTxid: funded.txid,
           explorer: funded.explorer,
-          title: "SoftCapJar",
+          title: "TipGoalJar",
           blurb: `Soft-cap jar. Claim if ≥ ${goal} sompi; after deadline owner may close. Contributors are not auto-refunded.`,
         });
         return ok({
           safety: SAFETY_BANNER,
           warning: L1_UNAUDITED_WARNING,
-          mode: "spending_wallet_softcap_deploy",
+          mode: "spending_wallet_tip_goal_deploy",
           ownerPkhHex: pkh,
           goalSompi: goal.toString(),
           deadlineMs: deadline.toString(),

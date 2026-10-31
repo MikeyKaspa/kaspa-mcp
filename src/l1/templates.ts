@@ -37,9 +37,15 @@ const META: Record<string, { title: string; description: string; recommendedEntr
     recommendedEntry: "withdraw",
   },
   softcap: {
-    title: "SoftCapJar",
+    title: "TipGoalJar",
     description:
-      "Soft-cap crowdfund jar: anyone funds; owner claims early only if this UTXO ≥ goalSompi; after deadline owner may close for any amount. Contributors are NOT auto-refunded.",
+      "Tip/goal jar (NOT a crowdfund): anyone funds; owner claims early only if THIS UTXO ≥ goal; after deadline owner may close. Contributors are NOT refunded. For refundable all-or-nothing use aon_pledge.",
+    recommendedEntry: "claim",
+  },
+  aon_pledge: {
+    title: "AllOrNothingPledge",
+    description:
+      "Refundable all-or-nothing crowdfund pledge: each backer gets a unique address; creator claims only by co-spending pledges whose total ≥ goal; after deadline each backer reclaim. On-chain sum check via introspection.",
     recommendedEntry: "claim",
   },
 };

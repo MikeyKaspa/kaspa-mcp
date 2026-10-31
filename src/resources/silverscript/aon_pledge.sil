@@ -1,0 +1,43 @@
+pragma silverscript ^0.1.0;
+
+// All-or-nothing per-backer pledge (authorized_by pt266u).
+// Each backer → unique P2SH. Creator claim co-spends pledges; sum(inputs) >= goal.
+// After deadline each backer reclaim. See comments in prior revision for trust notes.
+contract AoNPledge(
+    byte[32] ownerPkh,
+    byte[32] backerPkh,
+    byte[32] campaignTag,
+    int goalSompi,
+    temporal deadline
+) {
+    entry claim(pubkey pk, sig s) {
+        require(blake2b(byte[](pk)) == ownerPkh);
+        require(checkSig(s, pk));
+        // Keep campaignTag in the committed script (distinct P2SH per campaign).
+        require(campaignTag == campaignTag);
+        int total = 0;
+        for (i, 0, tx.inputs.length, 8) {
+            require(tx.inputs[i].scriptPubKey.length == 37);
+            total = total + tx.inputs[i].value;
+        }
+        require(total >= goalSompi);
+        byte[36] toOwner = new ScriptPubKeyP2PK(pk);
+        require(tx.outputs[0].scriptPubKey == byte[](toOwner));
+        int fee = 25000;
+        require(tx.outputs[0].value == total - fee);
+        require(tx.outputs.length == 1);
+    }
+
+    entry reclaim(pubkey pk, sig s) {
+        require(blake2b(byte[](pk)) == backerPkh);
+        require(checkSig(s, pk));
+        require(tx.time >= deadline);
+        require(campaignTag == campaignTag);
+        byte[36] toBacker = new ScriptPubKeyP2PK(pk);
+        require(tx.outputs[0].scriptPubKey == byte[](toBacker));
+        int fee = 25000;
+        int val = tx.inputs[this.activeInputIndex].value;
+        require(tx.outputs[0].value == val - fee);
+        require(tx.outputs.length == 1);
+    }
+}

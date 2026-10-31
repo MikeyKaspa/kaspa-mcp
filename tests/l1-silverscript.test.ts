@@ -8,7 +8,7 @@ import { compileSilverscript, isSilvercAvailable } from "../src/l1/compile.js";
 describe("silverscript templates", () => {
   it("ships tipjar, timeout_vault, escrow", () => {
     const ids = listTemplates().map((t) => t.id);
-    expect(ids).toEqual(["tipjar", "timeout_vault", "escrow", "lockbox", "softcap"]);
+    expect(ids).toEqual(["tipjar", "timeout_vault", "escrow", "lockbox", "softcap", "aon_pledge"]);
   });
 
   it("pinned tipjar artifact loads and has withdraw entry", () => {

@@ -75,51 +75,46 @@ export async function runSelfHostGuide(args: SelfHostArgs): Promise<Record<strin
     }
     return {
       ...base,
-      headline: "Get your own Kaspa connector (free) — then chat-deploy with no popups",
-      plainEnglish: [
-        "The public connector never holds keys, so every deploy needs your approval tap.",
-        "Your own copy can hold a tiny capped spending wallet on YOUR Cloudflare account only — then you say “build me a tip jar” and it just does it.",
-        "Testnet first (free play money). Mainnet only when you say so, with a clear warning.",
+      headline: "Get your own free Kaspa connector — then I can deploy without approval popups",
+      plainEnglish:
+        "The shared public connector never holds keys, so every send needs your tap. Your own free Cloudflare copy can hold a tiny spending wallet on YOUR account only — then you say “build me a tip jar” and it just does it. Start on testnet (free test KAS).",
+      youDo: [
+        "1. Make a free Cloudflare account (dash.cloudflare.com) if you do not have one.",
+        "2. Copy-paste the one-command deploy block below in a terminal (installs and publishes your connector).",
+        "3. Copy the connector link it prints (ends with /mcp).",
+        "4. In Claude: add that connector link as a custom connector, then turn on Always allow for it (stops per-action prompts).",
+        "5. Tell me your testnet receive address (kaspatest:q…) so leftovers can only go back to you.",
+        "6. Fund the spending address once from the free testnet faucet (I will give you the link).",
       ],
+      iDo: [
+        "Walk you through each step with copy-paste only.",
+        "Create the spending wallet and lock it to your address.",
+        "Remember testnet vs mainnet.",
+        "Build and deploy contracts from chat with no popups once funded.",
+      ],
+      oneCommandDeploy: code(`
+npm create kaspa-mcp@latest
+# or:
+git clone https://github.com/MikeyKaspa/kaspa-mcp && cd kaspa-mcp && npm install && npm run selfhost:setup
+`),
+      commands: code(`
+git clone https://github.com/MikeyKaspa/kaspa-mcp
+cd kaspa-mcp
+npm install
+npm run selfhost:setup
+`),
       beforeYouStart: [
-        "A free Cloudflare account (dash.cloudflare.com — email signup).",
-        "Any Kaspa wallet address you control for testnet (kaspatest:…). Kaspium / KasWare / etc. — this is only where leftovers can be withdrawn.",
-        "About 2 minutes, and one free faucet top-up later.",
+        "Free Cloudflare account",
+        "A Kaspa wallet address you control on testnet (kaspatest:q…)",
+        "About 2 minutes + one free faucet top-up",
       ],
-      humanActionCount: {
-        unavoidable: [
-          "Cloudflare signup (once)",
-          "Paste your kaspatest: address once",
-          "Fund spending address once from the free faucet (or a friend)",
-          "Paste your new /mcp URL into Claude / Cursor once",
-        ],
-        botHandles: [
-          "Deploy Worker (via one-command script or copy-paste)",
-          "Create spending wallet",
-          "Remember testnet vs mainnet",
-          "Build + deploy contracts from chat",
-        ],
-      },
-      askUser:
-        "Do you want phone-friendly hosting (Cloudflare, recommended) or run on your own computer (local Node)?",
-      next: {
-        cloudflare: 'Call self_host({ step: "deploy", platform: "cloudflare" })',
-        local: 'Call self_host({ step: "deploy", platform: "local" })',
-      },
+      tipAlwaysAllow:
+        "In Claude, after adding your connector link, enable Always allow for this connector so you are not asked to approve every tool call.",
+      askUser: "Say “deploy” when your Cloudflare login is ready — I will stay on Cloudflare hosting unless you ask for local.",
+      next: 'self_host({ step: "deploy", platform: "cloudflare" })',
       liveStatus,
-      overviewSteps: [
-        "0. Get a free Cloudflare account + a kaspatest: address (wallet app).",
-        "1. Deploy your copy (one command below — or the Deploy button for keyless-only).",
-        "2. Point your AI at YOUR …/mcp URL (replace the public one).",
-        "3. Answer: Testnet or mainnet? → choose_network.",
-        "4. spending_wallet_create with your main kaspatest: address.",
-        "5. Lock the one-shot key into YOUR Cloudflare secret (one copy-paste).",
-        "6. Fund the spending address from the TN10 faucet.",
-        "7. Verify, then say “build me a tip jar”.",
-        "Later: connector_version → if behind, self_host({ step: \"update\" }) (secrets/KV preserved; never auto).",
-      ],
       trapToAvoid:
-        "The big blue “Deploy to Cloudflare” button alone gives a keyless copy (tap-to-approve only). For no-popup chat-deploy you must use wrangler.selfhost.toml or npm run selfhost:setup.",
+        "The big blue “Deploy to Cloudflare” button alone is tap-to-approve only (no spending wallet). Use the one-command setup above for no-popup chat-deploy.",
     };
   }
 

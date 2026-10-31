@@ -26,6 +26,14 @@ describe("version + self_host update", () => {
     expect(r.updateHint).toMatch(/self_host/);
   });
 
+  it("no release (404) means You're up to date — not behind main commits", async () => {
+    const r = await checkAgainstLatest({
+      fetchImpl: async () => new Response("{}", { status: 404 }),
+    });
+    expect(r.behind).toBe(false);
+    expect(r.message).toMatch(/up to date/i);
+  });
+
   it("not behind when latest equals current", async () => {
     const cur = connectorVersion().version;
     const r = await checkAgainstLatest({
@@ -58,9 +66,10 @@ describe("version + self_host update", () => {
     expect(getCachedLatestCheck()?.behind).toBe(true);
   });
 
-  it("self_host start lists update in overview", async () => {
+  it("self_host update step still offered separately", async () => {
     process.env.MCP_PUBLIC = "true";
-    const r = await runSelfHostGuide({ step: "start" });
-    expect(JSON.stringify(r.overviewSteps)).toMatch(/update/);
+    const r = await runSelfHostGuide({ step: "update" });
+    expect(r.neverAutoUpdate).toBe(true);
+    expect(String(r.commands)).toMatch(/git pull/);
   });
 });

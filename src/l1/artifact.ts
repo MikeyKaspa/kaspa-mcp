@@ -338,3 +338,54 @@ export function rebindSoftCapJar(
   bc = replaceAllOccurrences(bc, demoDead, newDead);
   return cloneWithBytecode(loaded, bc);
 }
+
+/** Demo constants baked into aon_pledge.artifact.json (must match silverc ctor). */
+export const AON_DEMO_OWNER_PKH_HEX =
+  "50e4e615fef343ada5b11030ee9e3c27e7e73b3cab590a68e59edff51340a2a6";
+export const AON_DEMO_BACKER_PKH_HEX = "01".repeat(32);
+export const AON_DEMO_CAMPAIGN_TAG_HEX = "07".repeat(32);
+export const AON_DEMO_GOAL_SOMPI = 100_000_000;
+export const AON_DEMO_DEADLINE = 4_000_000_000_000;
+
+/**
+ * Rebind AoNPledge: ownerPkh + backerPkh + campaignTag + goalSompi + deadline.
+ * Byte-identical to silverc for same constructor args (push widths must match demo).
+ */
+export function rebindAoNPledge(
+  loaded: LoadedArtifact,
+  opts: {
+    ownerPkhHex: string;
+    backerPkhHex: string;
+    campaignTagHex: string;
+    goalSompi: number | bigint;
+    deadline: number | bigint;
+  },
+): LoadedArtifact {
+  const owner = hexToBytes(assertHex32(opts.ownerPkhHex, "ownerPkhHex"));
+  const backer = hexToBytes(assertHex32(opts.backerPkhHex, "backerPkhHex"));
+  const tag = hexToBytes(assertHex32(opts.campaignTagHex, "campaignTagHex"));
+  const goal = BigInt(opts.goalSompi);
+  const deadline = BigInt(opts.deadline);
+  if (deadline < 500_000_000_000n) {
+    throw new Error("deadline must be ≥ LOCK_TIME_THRESHOLD (500000000000) — use unix ms");
+  }
+  const demoOwner = hexToBytes(AON_DEMO_OWNER_PKH_HEX);
+  const demoBacker = hexToBytes(AON_DEMO_BACKER_PKH_HEX);
+  const demoTag = hexToBytes(AON_DEMO_CAMPAIGN_TAG_HEX);
+  const demoGoal = encodeSilvercInt6(AON_DEMO_GOAL_SOMPI);
+  const newGoal = encodeSilvercInt6(goal);
+  const demoDead = encodeSilvercInt6(AON_DEMO_DEADLINE);
+  const newDead = encodeSilvercInt6(deadline);
+  if (newGoal.length !== demoGoal.length) {
+    throw new Error(`goalSompi width ${newGoal.length} ≠ demo ${demoGoal.length}`);
+  }
+  if (newDead.length !== demoDead.length) {
+    throw new Error(`deadline width ${newDead.length} ≠ demo ${demoDead.length}`);
+  }
+  let bc = replaceAllOccurrences(loaded.bytecode, demoOwner, owner);
+  bc = replaceAllOccurrences(bc, demoBacker, backer);
+  bc = replaceAllOccurrences(bc, demoTag, tag);
+  bc = replaceAllOccurrences(bc, demoGoal, newGoal);
+  bc = replaceAllOccurrences(bc, demoDead, newDead);
+  return cloneWithBytecode(loaded, bc);
+}

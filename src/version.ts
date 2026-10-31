@@ -24,6 +24,8 @@ export type LatestCheck = {
   behind: boolean;
   latestUrl?: string;
   updateHint?: string;
+  /** Plain status for clients — prefer this over commit jargon. */
+  message?: string;
   checkedAt?: string;
   error?: string;
 };
@@ -68,24 +70,15 @@ export async function checkAgainstLatest(opts?: {
       signal: ac.signal,
     });
     if (res.status === 404) {
-      const c = await fetchImpl(GITHUB_COMMITS, {
-        headers: { Accept: "application/vnd.github+json", "User-Agent": "kaspa-mcp-version-check" },
-        signal: ac.signal,
-      });
-      if (!c.ok) {
-        return { current: cur.version, behind: false, error: `commits HTTP ${c.status}` };
-      }
-      const cj = (await c.json()) as { sha?: string };
-      const latestSha = (cj.sha || "").slice(0, 7);
-      const behind = Boolean(cur.gitSha && latestSha && cur.gitSha !== latestSha);
+      // No GitHub Release yet — treat current package version as the channel tip.
+      // Do NOT compare commit hashes to main (dev commits don't count).
       return {
         current: cur.version,
-        latest: latestSha ? `main@${latestSha}` : undefined,
-        behind,
-        latestUrl: "https://github.com/MikeyKaspa/kaspa-mcp",
-        updateHint: behind
-          ? 'Call self_host({ step: "update" }) for copy-paste update steps (secrets preserved). Never auto-updates.'
-          : undefined,
+        latest: `v${cur.version}`,
+        behind: false,
+        latestUrl: "https://github.com/MikeyKaspa/kaspa-mcp/releases",
+        updateHint: undefined,
+        message: "You're up to date",
         checkedAt: new Date().toISOString(),
       };
     }
@@ -101,8 +94,9 @@ export async function checkAgainstLatest(opts?: {
       behind,
       latestUrl: j.html_url || "https://github.com/MikeyKaspa/kaspa-mcp/releases",
       updateHint: behind
-        ? 'Your copy is behind. Call self_host({ step: "update" }) for safe copy-paste update steps. Secrets/KV are preserved. Never auto-updates.'
+        ? 'Your copy is behind the latest release. Call self_host({ step: "update" }) for safe copy-paste update steps. Secrets/KV are preserved. Never auto-updates.'
         : undefined,
+      message: behind ? undefined : "You're up to date",
       checkedAt: new Date().toISOString(),
     };
   } catch (e) {

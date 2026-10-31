@@ -29,7 +29,7 @@ export const DEFAULT_WALLET_FILE = ".kaspa-spending.key";
 export const DEFAULT_REGISTRY_FILE = ".kaspa-spending.registry.json";
 
 /** Reviewed SilverScript templates the spending wallet may fund/deploy. */
-export const REVIEWED_TEMPLATE_IDS = ["tipjar", "timeout_vault", "escrow", "lockbox", "softcap"] as const;
+export const REVIEWED_TEMPLATE_IDS = ["tipjar", "timeout_vault", "escrow", "lockbox", "softcap", "aon_pledge"] as const;
 export type ReviewedTemplateId = (typeof REVIEWED_TEMPLATE_IDS)[number];
 
 const HEX64 = /^0x[0-9a-fA-F]{64}$/;
