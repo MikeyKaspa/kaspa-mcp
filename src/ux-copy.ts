@@ -70,7 +70,7 @@ Withdraw IS one-tap on the public connector:
 1. Call get_balance on the tip-jar (P2SH) address.
 2. If balance is 0 / unfunded: do NOT say “send manually”. Call l1_prepare_fund({ templateId, fromAddress, amountSompi }) and give the user tapToApprove.url to fund first.
 3. If funded: call l1_prepare_spend({ templateId, entry, utxo, destinationAddress, args }) and give tapToApprove.url — the /sign page wraps the covenant unlock for KasWare/Kastle/Kaspire.
-4. Never say spend/withdraw “only works on self-hosted Node / npm start”. That is stale. Public demo = tap-to-approve; self-host Cloudflare = optional no-popup spending wallet.
+4. Withdraw works with a one-tap approve link on the public connector. Self-host Cloudflare adds optional no-popup auto-sign. Do not claim withdraw requires a local Node server.
 `.trim();
 
 export function readyNotOnChain(opts: {
