@@ -1,0 +1,15 @@
+{
+  "name": "kaspa-mcp",
+  "version": "0.2.0",
+  "description": "Build and deploy on Kaspa from chat: L1 SilverScript tip jars, vaults, escrow, crowdfunds, plus Kasplex/Igra EVM. Non-custodial tap-to-approve; shared demo is keyless.",
+  "author": {
+    "name": "MikeyKaspa",
+    "email": "mikeykaspa@users.noreply.github.com"
+  },
+  "homepage": "https://github.com/MikeyKaspa/kaspa-mcp",
+  "repository": "https://github.com/MikeyKaspa/kaspa-mcp",
+  "license": "MIT",
+  "keywords": ["kaspa", "mcp", "silverscript", "blockchain", "smart-contracts", "crowdfund"],
+  "logo": "assets/logo.svg",
+  "mcpServers": "mcp.json"
+}

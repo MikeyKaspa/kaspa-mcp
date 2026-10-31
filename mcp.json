@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "kaspa": {
+      "type": "http",
+      "url": "https://kaspa-mcp.kaspa-mcp.workers.dev/mcp"
+    }
+  }
+}

@@ -14,6 +14,7 @@ import {
 import { setCampaignPageContext } from "./campaign-page.js";
 import { handleCampaignHttp } from "./campaign-http.js";
 import { setContractPageContext } from "./contract-page.js";
+import { handleLegalHttp } from "./legal-pages.js";
 
 const PORT = Number(process.env.PORT ?? 8787);
 const HOST = process.env.HOST ?? "127.0.0.1";
@@ -107,8 +108,14 @@ const httpServer = createServer(async (req, res) => {
         res.end(Buffer.from(await campRes.arrayBuffer()));
         return;
       }
+      const legalRes = handleLegalHttp(request);
+      if (legalRes) {
+        res.writeHead(legalRes.status, Object.fromEntries(legalRes.headers.entries()));
+        res.end(Buffer.from(await legalRes.arrayBuffer()));
+        return;
+      }
       res.writeHead(404, { "content-type": "text/plain" });
-      res.end("Not found. MCP: POST /mcp · Approve: GET /sign/<id> · Campaign: GET /campaign/<id>");
+      res.end("Not found. MCP: POST /mcp · Approve: GET /sign/<id> · Campaign: GET /campaign/<id> · /privacy · /terms · /support");
       return;
     }
 

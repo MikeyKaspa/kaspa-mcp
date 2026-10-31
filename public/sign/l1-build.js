@@ -27,9 +27,37 @@ import init, {
   Encoding,
 } from "/kaspa-wasm/kaspa.js";
 
+const KASPA_WASM_URL = "/kaspa-wasm/kaspa_bg.wasm";
+/** sha384 of kaspa_bg.wasm (L-3 integrity). Update public/kaspa-wasm/SRI.txt when wasm changes. */
+const KASPA_WASM_SHA384_HEX = "a9b6999d892c9ddde2fb4283f547c8f141322ed6940e182e26fefe9b50c57f168ab58e2ed26679bdb0978798bd5f9d4e";
+
+async function sha384Hex(buf) {
+  const dig = await crypto.subtle.digest("SHA-384", buf);
+  return Array.from(new Uint8Array(dig))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 let ready;
 export async function ensureKaspa() {
-  if (!ready) ready = init({ module_or_path: "/kaspa-wasm/kaspa_bg.wasm" });
+  if (!ready) {
+    ready = (async () => {
+      const res = await fetch(KASPA_WASM_URL, { cache: "no-cache" });
+      if (!res.ok) throw new Error("Failed to load kaspa-wasm (" + res.status + ")");
+      const buf = await res.arrayBuffer();
+      const got = await sha384Hex(buf);
+      if (got !== KASPA_WASM_SHA384_HEX) {
+        throw new Error(
+          "kaspa-wasm integrity check failed (expected sha384 " +
+            KASPA_WASM_SHA384_HEX.slice(0, 16) +
+            "… got " +
+            got.slice(0, 16) +
+            "…). Refuse to run.",
+        );
+      }
+      await init({ module_or_path: buf });
+    })();
+  }
   await ready;
 }
 

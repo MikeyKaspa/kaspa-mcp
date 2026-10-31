@@ -73,6 +73,7 @@ import {
   REVIEWED_TEMPLATE_IDS,
 } from "./spending-wallet.js";
 import { autoFundCovenant, autoSpendCovenant, spendingWalletWithdrawAll, balanceSompi } from "./l1/auto-sign.js";
+import { TOOL_ANNOTATIONS } from "./tool-annotations.js";
 
 function ok(data: unknown): TextJson {
   let payload: unknown = data;
@@ -144,12 +145,17 @@ export function createKaspaMcpServer(): McpServer {
     },
     {
       instructions:
+        `NON-CUSTODIAL. This connector never stores mainnet private keys. The shared demo is keyless (MCP_PUBLIC). ` +
+        `Self-host may keep a dedicated spending key on YOUR Worker/env only — never paste a seed into chat.\n\n` +
+        `MAINNET: prepare-only + tap-to-approve (KasWare / wallet popup). Chat privateKey on mainnet is rejected. ` +
+        `Prefer testnet-10 for experiments.\n\n` +
+        `UNAUDITED: L1 SilverScript templates and prepare helpers are experimental. Funding or spending covenants can lose funds. Use at your own risk.\n\n` +
         `${SAFETY_BANNER}\n\n${L1_UNAUDITED_WARNING}\n\n${MCP_NETWORK_INSTRUCTIONS}\n\n` +
         `CROWDFUND / FUNDRAISER / KICKSTARTER / "raise money" / all-or-nothing → ALWAYS call l1_aon_create_campaign ` +
         `(NOT tipjar, NOT TipGoalJar/softcap, NOT silverscript_compile, NOT l1_derive_p2sh). ` +
         `It uses a prebuilt artifact + rebind on the public connector — no local silverc. ` +
         `Pass ownerAddress = the user's kaspatest: address, goalSompi (1 test KAS = 100000000), optional deadlineMs. ` +
-        `Return sharePage.url to the user. Track with campaign_status. After prepare, poll l1_check_session — do NOT ask the user for a txid.\n\n` +
+        `Return sharePage.url to the user. Track with campaign_status. After prepare, poll l1_check_session — do NOT ask the user for a txid. When status is submitted, call l1_confirm_tx to verify inclusion on chain. campaign_status tracks REGISTERED pledges only (MCP/API/one-tap), not random on-chain sends.\n\n` +
         `TipGoalJar (softcap) is NOT a crowdfund (no auto-refund). Only use when the user wants a tip/goal jar.\n\n` +
         `For everyday users who want chat-deploy without popups: guide them with self_host ` +
         `(Cloudflare Deploy button / dashboard first; Node only if they ask), then spending_wallet_create on THEIR copy. Shared demo is keyless.\n\n` +
@@ -163,8 +169,9 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "list_networks",
     {
+      annotations: TOOL_ANNOTATIONS.list_networks,
       description:
-        "List networks. Primary: Kaspa L1 SilverScript (testnet-10). Secondary: Kasplex/Igra EVM. vProgs stub.",
+        "List available networks. Primary: Kaspa L1 (testnet-10 recommended). Also Kasplex/Igra EVM testnets. Prefer testnet.",
       inputSchema: {
         kind: z.enum(["evm", "covenant", "vprogs", "l1-read"]).optional(),
         testnetOnly: z.boolean().optional(),
@@ -186,7 +193,8 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "kaspa_network_info",
     {
-      description: "Detailed info for one network id (RPC, chainId, faucet, maturity, docs).",
+      annotations: TOOL_ANNOTATIONS.kaspa_network_info,
+      description: "Details for one network: RPC, chain id, faucet link, maturity, docs. Prefer testnet for experiments.",
       inputSchema: { network: z.string() },
     },
     async ({ network }) => {
@@ -201,6 +209,7 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "kaspa_ideas",
     {
+      annotations: TOOL_ANNOTATIONS.kaspa_ideas,
       description:
         "Brainstorm build ideas on Kaspa for a theme. Uses network maturity so suggestions stay honest (EVM L2 vs covenants vs roadmap).",
       inputSchema: {
@@ -244,7 +253,8 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "compile_solidity",
     {
-      description: "Compile Solidity source with solc-js (Node: local package; Workers: official binaries.soliditylang.org CDN). Returns ABI + bytecode.",
+      annotations: TOOL_ANNOTATIONS.compile_solidity,
+      description: "Compile Solidity to ABI + bytecode. Works fully on self-host Node; shared Worker may be limited — pass bytecode if compile fails.",
       inputSchema: {
         source: z.string(),
         contractName: z.string().optional(),
@@ -267,6 +277,7 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "deploy_contract",
     {
+      annotations: TOOL_ANNOTATIONS.deploy_contract,
       description:
         "Deploy compiled Solidity to an EVM Kaspa network. TESTNET: optional ephemeral privateKey (never stored). MAINNET: rejected — use prepare_deploy + wallet sign + send_raw_transaction. Prefer source/cacheKey, or pass bytecode+abi (Worker-safe when solc eval is unavailable). signedRawTx alone broadcasts without compiling.",
       inputSchema: {
@@ -354,6 +365,7 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "prepare_deploy",
     {
+      annotations: TOOL_ANNOTATIONS.prepare_deploy,
       description:
         "Build an unsigned deploy transaction (safe on mainnet). User signs externally. Accepts source, cacheKey, or bytecode+abi.",
       inputSchema: {
@@ -430,7 +442,8 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "read_contract",
     {
-      description: "eth_call / read a view function on an EVM contract.",
+      annotations: TOOL_ANNOTATIONS.read_contract,
+      description: "Read a view/pure function on an EVM contract (no spend).",
       inputSchema: {
         network: z.string().optional().describe("Defaults to session or " + DEFAULT_EVM_TESTNET + ""),
         address: z.string(),
@@ -458,7 +471,8 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "prepare_call",
     {
-      description: "Prepare an unsigned state-changing contract call. Ask Testnet or mainnet? via choose_network first if network omitted.",
+      annotations: TOOL_ANNOTATIONS.prepare_call,
+      description: "Prepare an unsigned EVM contract call for your wallet to sign. Ask Testnet or mainnet first if unset.",
       inputSchema: {
         network: z.string().optional().describe("EVM network id; omit only after choose_network"),
         address: z.string(),
@@ -516,7 +530,8 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "send_raw_transaction",
     {
-      description: "Broadcast a user-signed raw transaction to an EVM network.",
+      annotations: TOOL_ANNOTATIONS.send_raw_transaction,
+      description: "Broadcast a transaction you already signed (EVM networks like Kasplex/Igra).",
       inputSchema: {
         network: z.string().optional().describe("EVM network; choose_network first if omitted"),
         rawTx: z.string(),
@@ -542,7 +557,8 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "get_balance",
     {
-      description: "Native balance on EVM (Kasplex/Igra) or Kaspa L1 (sompi via api.kaspa.org).",
+      annotations: TOOL_ANNOTATIONS.get_balance,
+      description: "Show wallet balance (KAS or test KAS on L1; native token on Kasplex/Igra). Amounts also include smallest units for exactness.",
       inputSchema: {
         network: z.string().optional().describe("Defaults to session preference or testnet"),
         address: z.string(),
@@ -580,7 +596,8 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "get_tx",
     {
-      description: "Fetch a transaction by hash on EVM or Kaspa L1.",
+      annotations: TOOL_ANNOTATIONS.get_tx,
+      description: "Look up a transaction by id/hash on Kaspa L1 or EVM.",
       inputSchema: {
         network: z.string().optional().describe("Defaults to session preference or testnet"),
         hash: z.string(),
@@ -604,7 +621,8 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "faucet_info",
     {
-      description: "How to get free testnet funds for a network. Does not claim (captcha/PoW may apply). $0 only.",
+      annotations: TOOL_ANNOTATIONS.faucet_info,
+      description: "How to get free test KAS / testnet tokens. Does not claim for you (you click the faucet). Free only.",
       inputSchema: {
         network: z.string().optional().describe("Defaults to kaspa-l1-testnet-10"),
       },
@@ -653,7 +671,8 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "l1_blockdag_info",
     {
-      description: "Kaspa L1 blockDAG summary from public api.kaspa.org (or tn10).",
+      annotations: TOOL_ANNOTATIONS.l1_blockdag_info,
+      description: "Kaspa L1 network summary (blockDAG tip info) from public REST (testnet or mainnet).",
       inputSchema: {
         network: z.enum(["kaspa-l1-mainnet", "kaspa-l1-testnet-10"]).default("kaspa-l1-testnet-10"),
       },
@@ -674,7 +693,8 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "verify_rpc",
     {
-      description: "Ping an EVM network eth_chainId and compare to the registry (health check).",
+      annotations: TOOL_ANNOTATIONS.verify_rpc,
+      description: "Health-check an EVM RPC (chain id vs expected).",
       inputSchema: {
         network: z.string().optional().describe("Defaults to kasplex-testnet"),
       },
@@ -709,6 +729,7 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "silverscript_templates",
     {
+      annotations: TOOL_ANNOTATIONS.silverscript_templates,
       description:
         "List L1 SilverScript templates (TipJar, TimeoutVault, Escrow) with source + pinned example artifacts (silverc v1.0.0). Shared demo: use these or paste your own artifact — no in-Worker compile. UNAUDITED / use at own risk.",
       inputSchema: { id: z.string().optional().describe("Optional template id for full detail") },
@@ -767,7 +788,8 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "silverscript_load_artifact",
     {
-      description: "Validate a SilAbiArtifact JSON (from silverc or a pinned template) and return bytecode, entries, template hash. UNAUDITED / use at own risk.",
+      annotations: TOOL_ANNOTATIONS.silverscript_load_artifact,
+      description: "Validate a SilverScript artifact JSON and return script bytes + entries. UNAUDITED — use at your own risk.",
       inputSchema: {
         artifact: z.unknown().optional(),
         templateId: z.string().optional().describe("tipjar | timeout_vault | escrow"),
@@ -797,6 +819,7 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "silverscript_compile",
     {
+      annotations: TOOL_ANNOTATIONS.silverscript_compile,
       description:
         "SELF-HOST ONLY: compile .sil with silverc binary (SILVERC_PATH). Disabled on Cloudflare Workers — use templates or paste artifact. UNAUDITED / use at own risk.",
       inputSchema: {
@@ -832,6 +855,7 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "l1_derive_p2sh",
     {
+      annotations: TOOL_ANNOTATIONS.l1_derive_p2sh,
       description:
         "Derive P2SH for tipjar/vault/escrow (pass ownerAddress). For crowdfund/fundraiser/aon_pledge this tool REDIRECTS you to l1_aon_create_campaign — do not compile. TipGoalJar/softcap redirects to l1_prepare_fund.",
       inputSchema: {
@@ -913,6 +937,7 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "l1_prepare_fund",
     {
+      annotations: TOOL_ANNOTATIONS.l1_prepare_fund,
       description:
         "Prepare a ONE-TAP fund link (public demo OK). Always returns tapToApprove.url — never tell users to send manually. " +
         "ALWAYS rebinds the template to the exact owner/params you pass so the funded address matches what you showed the user. " +
@@ -1105,6 +1130,7 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "l1_prepare_spend",
     {
+      annotations: TOOL_ANNOTATIONS.l1_prepare_spend,
       description:
         "Prepare a ONE-TAP withdraw/spend link for a P2SH covenant. Works on the PUBLIC demo via tapToApprove (/sign page wraps the unlock for KasWare/Kastle/Kaspire). " +
         "If the jar has 0 balance, call l1_prepare_fund first — never tell users to send manually. autoSignBroadcast = self-host spending wallet only. UNAUDITED.",
@@ -1253,6 +1279,7 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "spending_wallet_create",
     {
+      annotations: TOOL_ANNOTATIONS.spending_wallet_create,
       description:
         "SELF-HOST ONLY. Create a fresh dedicated Kaspa spending wallet for chat-deploy. " +
         "REQUIRES mainAddress (your cold/main wallet) — the only destination withdraw_all may use. " +
@@ -1312,6 +1339,7 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "spending_wallet_status",
     {
+      annotations: TOOL_ANNOTATIONS.spending_wallet_status,
       description:
         "Show spending wallet config (address, mainAddress, caps, covenant count). Never returns the private key.",
       inputSchema: { network: z.string().optional().describe("Defaults to session or TN10") },
@@ -1340,6 +1368,7 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "spending_wallet_withdraw_all",
     {
+      annotations: TOOL_ANNOTATIONS.spending_wallet_withdraw_all,
       description:
         "SELF-HOST ONLY. Sweep the entire spending wallet balance to the locked mainAddress set at creation. " +
         "No destination parameter (prompt-injection cannot redirect). Caps still apply on mainnet.",
@@ -1374,6 +1403,7 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "spending_wallet_export_key",
     {
+      annotations: TOOL_ANNOTATIONS.spending_wallet_export_key,
       description:
         "Always refused. Exists so agents/prompt-injection attempting to export the spending key get a clear denial.",
       inputSchema: { confirm: z.string().optional() },
@@ -1390,6 +1420,7 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "spending_wallet_set_limits",
     {
+      annotations: TOOL_ANNOTATIONS.spending_wallet_set_limits,
       description:
         "Always refused. Caps are deploy-time env only (not raisable via chat).",
       inputSchema: {
@@ -1409,6 +1440,7 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "l1_tipjar_chat_deploy",
     {
+      annotations: TOOL_ANNOTATIONS.l1_tipjar_chat_deploy,
       description:
         "SELF-HOST ONLY. Chat-deploy reviewed TipJar with spending wallet as owner: compile (silverc or Worker rebind) → fund P2SH → registry. " +
         "No wallet popup. Requires spending_wallet_create({ mainAddress }) + funded address. Pure-JS signer works on free Cloudflare Workers.",
@@ -1510,6 +1542,7 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "choose_network",
     {
+      annotations: TOOL_ANNOTATIONS.choose_network,
       description:
         "REQUIRED EARLY: remember Testnet or mainnet for this session before any build/deploy/prepare. " +
         "Ask the user 'Testnet or mainnet?' then call this. Mainnet responses include the UNAUDITED warning.",
@@ -1546,7 +1579,8 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "network_preference",
     {
-      description: "Show the session network choice (testnet/mainnet) if set. Does not change it.",
+      annotations: TOOL_ANNOTATIONS.network_preference,
+      description: "Show whether this chat chose testnet or mainnet. Does not change the choice.",
       inputSchema: {},
     },
     async () => {
@@ -1570,6 +1604,7 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "self_host",
     {
+      annotations: TOOL_ANNOTATIONS.self_host,
       description:
         "Guided step-by-step wizard for everyday users to launch THEIR own Kaspa connector " +
         "(free Cloudflare or local), set the spending-wallet secret, fund, and verify. " +
@@ -1596,6 +1631,7 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "l1_confirm_tx",
     {
+      annotations: TOOL_ANNOTATIONS.l1_confirm_tx,
       description:
         "Poll public REST until a Kaspa L1 tx is accepted (or timed out). " +
         "Use after submit to avoid orphan/reject-but-landed races. Returns tn10.kaspa.stream / explorer link.",
@@ -1641,7 +1677,8 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "estimate_fee",
     {
-      description: "Live L1 fee/mass estimate from REST /info/fee-estimate (failover across configured nodes).",
+      annotations: TOOL_ANNOTATIONS.estimate_fee,
+      description: "Estimate current Kaspa L1 fee from public nodes (with failover).",
       inputSchema: {
         network: z.enum(["kaspa-l1-testnet-10", "kaspa-l1-mainnet", "testnet-10", "mainnet"]).optional(),
       },
@@ -1670,6 +1707,7 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "configure_node",
     {
+      annotations: TOOL_ANNOTATIONS.configure_node,
       description:
         "SELF-HOST: set your own REST (and optional wRPC) so UTXO/submit do not depend on a single public API. " +
         "Pass restBases like https://your-vps:8000. Public community APIs remain as failover unless you omit them by only listing yours and accepting outages when yours is down.",
@@ -1709,6 +1747,7 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "create_contract_page",
     {
+      annotations: TOOL_ANNOTATIONS.create_contract_page,
       description:
         "Create a one-tap simple share page for a P2SH contract (address + blurb + copy button). Returns /page/<id> URL.",
       inputSchema: {
@@ -1746,6 +1785,7 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "l1_vault_chat_deploy",
     {
+      annotations: TOOL_ANNOTATIONS.l1_vault_chat_deploy,
       description:
         "SELF-HOST ONLY. Chat-deploy TimeoutVault with spending wallet as sender (and optional recipient x-only). " +
         "Worker path rebinds bundled artifact (byte-identical to silverc). No popup.",
@@ -1850,6 +1890,7 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "l1_escrow_chat_deploy",
     {
+      annotations: TOOL_ANNOTATIONS.l1_escrow_chat_deploy,
       description:
         "SELF-HOST ONLY. Chat-deploy Escrow with spending wallet as arbiter. " +
         "Buyer/seller default to the spending wallet x-only pubkey (self-test); pass both for a real third-party escrow. No popup.",
@@ -1965,7 +2006,7 @@ export function createKaspaMcpServer(): McpServer {
     "overview",
     "kaspa-mcp://docs/overview",
     {
-      description: "What this connector is, safety model, and how to build on Kaspa with an AI agent",
+      description: "What this connector is, the non-custodial safety model, and how to build on Kaspa with an AI assistant",
       mimeType: "text/markdown",
     },
     async () => ({
@@ -2060,6 +2101,7 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
   server.registerTool(
     "connector_version",
     {
+      annotations: TOOL_ANNOTATIONS.connector_version,
       description:
         "Show this connector's version and whether a newer GitHub release/main exists. " +
         "Self-hosters who are behind should call self_host({ step: \"update\" }). Never auto-updates.",
@@ -2095,6 +2137,7 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
   server.registerTool(
     "l1_aon_create_campaign",
     {
+      annotations: TOOL_ANNOTATIONS.l1_aon_create_campaign,
       description:
         "START A CROWDFUND / FUNDRAISER / KICKSTARTER (Stag Hunt style all-or-nothing). Owner claims anytime goal met; backers reclaim permissionlessly only after deadline+grace (default 3 days). Refunds are sent to the backer address by anyone — no host key. Not tipjar/TipGoalJar/softcap. Returns sharePage.url. Goal: 1 test KAS = 100000000 sompi.",
       inputSchema: {
@@ -2147,6 +2190,7 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
   server.registerTool(
     "l1_aon_add_pledge",
     {
+      annotations: TOOL_ANNOTATIONS.l1_aon_add_pledge,
       description:
         "Add a backer pledge address to an all-or-nothing campaign and prepare a one-tap fund link for that backer.",
       inputSchema: {
@@ -2250,6 +2294,7 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
   server.registerTool(
     "l1_check_session",
     {
+      annotations: TOOL_ANNOTATIONS.l1_check_session,
       description:
         "Poll a one-tap /sign session after prepare. Returns pending or submitted + txid/explorer when the user approved. Do NOT ask the user to paste a transaction ID — call this instead.",
       inputSchema: {
@@ -2294,8 +2339,9 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
   server.registerTool(
     "campaign_status",
     {
+      annotations: TOOL_ANNOTATIONS.campaign_status,
       description:
-        "Live all-or-nothing crowdfund status: raised vs goal, deadline, grace/refunds-open time, status (open/goal_met/grace/claimed/refunding), pledge list. Pass campaignPageId from l1_aon_create_campaign sharePage.id.",
+        "Live all-or-nothing crowdfund status: raised vs goal, deadline, grace/refunds-open time, status (open/goal_met/grace/claimed/refunding), pledge list. Pass campaignPageId from l1_aon_create_campaign sharePage.id. Tracks REGISTERED pledges only (one-tap / MCP / API), not arbitrary chain sends to the address.",
       inputSchema: {
         campaignPageId: z.string().describe("Campaign share page id"),
       },
@@ -2320,6 +2366,7 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
   server.registerTool(
     "l1_lockbox_chat_deploy",
     {
+      annotations: TOOL_ANNOTATIONS.l1_lockbox_chat_deploy,
       description:
         "SELF-HOST ONLY. Chat-deploy Lockbox (time-locked savings): anyone funds; owner withdraws only after unlockAt (unix ms). " +
         "Default unlock = now+1h on testnet. Worker rebind is byte-identical to silverc. No popup.",
@@ -2408,6 +2455,7 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
   server.registerTool(
     "l1_softcap_chat_deploy",
     {
+      annotations: TOOL_ANNOTATIONS.l1_softcap_chat_deploy,
       description:
         "SELF-HOST ONLY. Chat-deploy TipGoalJar (NOT a crowdfund — backers are NOT refunded). Owner claims early only if THIS UTXO ≥ goal; after deadline owner may close. " +
         "For refundable all-or-nothing crowdfunding use aon_pledge. Default goal 1 test KAS, deadline now+7d.",

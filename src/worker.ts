@@ -26,6 +26,7 @@ import { handleCampaignHttp } from "./campaign-http.js";
 import { applyNodeConfigFromEnv } from "./endpoints.js";
 import { connectorVersion } from "./version.js";
 import { requireAuthIfConfigured, stripTokenPathPrefix } from "./auth.js";
+import { handleLegalHttp } from "./legal-pages.js";
 import { privateKeyToAddress } from "./l1/pure/sign.js";
 
 export interface Env extends RateLimitEnv {
@@ -145,6 +146,9 @@ export default {
       return withCors(new Response(null, { status: 204 }));
     }
 
+    const legalRes = handleLegalHttp(request);
+    if (legalRes) return withCors(legalRes);
+
     if (url.pathname === "/health") {
       return withCors(
         Response.json({
@@ -198,7 +202,7 @@ export default {
     }
 
     if (url.pathname !== "/mcp") {
-      return withCors(new Response("Kaspa MCP — POST /mcp · GET /sign/<id> · GET /page/<id> · GET /campaign/<id>", { status: 404 }));
+      return withCors(new Response("Kaspa MCP — POST /mcp · GET /sign/<id> · GET /page/<id> · GET /campaign/<id> · /privacy · /terms · /support", { status: 404 }));
     }
 
     const bodyText =

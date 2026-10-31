@@ -16,6 +16,10 @@ MIT · Non-custodial · Designed for **$0** (public RPCs + free testnet faucets)
 
 > Deploy button = **keyless** copy (tap-to-approve). For chat-deploy **without popups**, use `npm run selfhost:setup` (see Self-host below).
 
+**Legal:** [Privacy](https://kaspa-mcp.kaspa-mcp.workers.dev/privacy) · [Terms](https://kaspa-mcp.kaspa-mcp.workers.dev/terms) · [Support](https://kaspa-mcp.kaspa-mcp.workers.dev/support)  
+**Listing kit:** [docs/LISTING.md](docs/LISTING.md) · Logo: [`assets/logo.svg`](assets/logo.svg)
+
+
 
 ## Network choice
 
@@ -90,7 +94,11 @@ MCP URL:
 https://kaspa-mcp.kaspa-mcp.workers.dev/mcp
 ```
 
-**Claude (claude.ai / Desktop / Cowork)** — [Custom connectors (remote MCP)](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp): Settings → Connectors → Add custom connector → paste the HTTPS URL above → choose **No sign-in** (this demo is open). Claude’s cloud must reach the URL (public internet only; localhost will not work as a custom connector).
+**Claude (claude.ai / Desktop / Cowork)** — one-click custom connector:
+
+https://claude.ai/customize/connectors?modal=add-custom-connector&connectorName=Kaspa%20MCP&connectorUrl=https%3A%2F%2Fkaspa-mcp.kaspa-mcp.workers.dev%2Fmcp
+
+Or: Settings → Connectors → Add custom connector → paste the HTTPS URL above → **No sign-in** (shared demo is open). Claude’s cloud must reach the URL (public internet only; localhost will not work as a custom connector). See [remote MCP help](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp).
 
 **Claude Desktop local server** — for `npm start` on your machine, bridge with stdio (Custom Connectors cannot see localhost):
 
@@ -100,7 +108,9 @@ claude mcp add --transport http kaspa http://127.0.0.1:8787/mcp
 # or: npx -y mcp-remote http://127.0.0.1:8787/mcp --transport http-only
 ```
 
-**Cursor** — Settings → MCP → Add new MCP server → Type **URL** / Streamable HTTP → paste the demo URL (or your self-hosted `/mcp`).
+**Cursor** — Settings → MCP → Add new MCP server → Type **URL** / Streamable HTTP → paste the demo URL (or your self-hosted `/mcp`). Or install the repo plugin (`.cursor-plugin/plugin.json` + `mcp.json`) when listed on the Cursor marketplace.
+
+**Grok Bot** — Connect Apps → add remote MCP URL above (or install when listed). Marketplace kit: [docs/LISTING.md](docs/LISTING.md).
 
 **Other MCP clients** — any client that supports Streamable HTTP MCP can POST to `/mcp`.
 
