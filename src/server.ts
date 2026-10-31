@@ -1,6 +1,16 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { getNetwork, listNetworks, DEFAULT_EVM_TESTNET, NETWORKS } from "./networks.js";
+import { getNetwork, listNetworks, DEFAULT_EVM_TESTNET, DEFAULT_L1_TESTNET, NETWORKS } from "./networks.js";
+import {
+  resolveNetwork,
+  setSessionNetworkChoice,
+  getSessionNetworkPreference,
+  MCP_NETWORK_INSTRUCTIONS,
+  ASK_NETWORK_PROMPT,
+  type NetworkChoice,
+} from "./session-network.js";
+import { runSelfHostGuide } from "./self-host.js";
+import { confirmTransaction, explorerTxUrl } from "./l1/confirm.js";
 import { backendFor } from "./backends/registry.js";
 import { compileSolidityAsync } from "./backends/compile.js";
 import { SAFETY_BANNER, SafetyError, normalizeTestnetPrivateKey, redactSecrets } from "./safety.js";
@@ -46,6 +56,12 @@ function err(e: unknown): TextJson {
   return { content: [{ type: "text", text: redactSecrets(msg) }], isError: true };
 }
 
+/** If resolveNetwork says ask the user, return that payload; else null. */
+function needNetworkChoicePayload(resolved: ReturnType<typeof resolveNetwork>): TextJson | null {
+  if (resolved.ok) return null;
+  return ok({ safety: SAFETY_BANNER, ...resolved });
+}
+
 const compiledCache = new Map<string, CompileResult>();
 
 function cacheCompiled(key: string, compiled: CompileResult): void {
@@ -79,10 +95,18 @@ function compiledFromBytecode(args: {
 }
 
 export function createKaspaMcpServer(): McpServer {
-  const server = new McpServer({
-    name: "kaspa-mcp",
-    version: "0.1.0",
-  });
+  const server = new McpServer(
+    {
+      name: "kaspa-mcp",
+      version: "0.1.0",
+    },
+    {
+      instructions:
+        `${SAFETY_BANNER}\n\n${L1_UNAUDITED_WARNING}\n\n${MCP_NETWORK_INSTRUCTIONS}\n\n` +
+        `For everyday users who want chat-deploy without popups: guide them with self_host ` +
+        `(Cloudflare or local), then spending_wallet_create on THEIR copy. Shared demo is keyless.`,
+    },
+  );
 
   server.registerTool(
     "list_networks",
@@ -194,7 +218,10 @@ export function createKaspaMcpServer(): McpServer {
       description:
         "Deploy compiled Solidity to an EVM Kaspa network. TESTNET: optional ephemeral privateKey (never stored). MAINNET: rejected — use prepare_deploy + wallet sign + send_raw_transaction. Prefer source/cacheKey, or pass bytecode+abi (Worker-safe when solc eval is unavailable). signedRawTx alone broadcasts without compiling.",
       inputSchema: {
-        network: z.string().default(DEFAULT_EVM_TESTNET),
+        network: z
+          .string()
+          .optional()
+          .describe("EVM network id. Omit only after choose_network; otherwise you will be asked Testnet or mainnet?"),
         source: z.string().optional().describe("Solidity source (compiled if cacheKey/bytecode not set)"),
         cacheKey: z.string().optional(),
         contractName: z.string().optional(),
@@ -210,7 +237,11 @@ export function createKaspaMcpServer(): McpServer {
     },
     async (args) => {
       try {
-        const network = getNetwork(args.network);
+        const resolved = resolveNetwork({ explicit: args.network, kind: "evm" });
+        const ask = needNetworkChoicePayload(resolved);
+        if (ask) return ask;
+        if (!resolved.ok) return err("network resolve failed");
+        const network = resolved.network;
         // Reject mainnet keys before any compile / RPC work.
         const privateKey = normalizeTestnetPrivateKey(network, args.privateKey);
         if (args.constructorArgs && args.constructorArgs.length > MAX_CTOR_ARGS) {
@@ -256,7 +287,12 @@ export function createKaspaMcpServer(): McpServer {
           privateKey,
           signedRawTx: args.signedRawTx?.trim(),
         });
-        return ok({ safety: SAFETY_BANNER, ...result });
+        return ok({
+          safety: SAFETY_BANNER,
+          ...(resolved.mainnetWarning ? { mainnetWarning: resolved.mainnetWarning } : {}),
+          networkSource: resolved.source,
+          ...result,
+        });
       } catch (e) {
         return err(e);
       }
@@ -269,7 +305,10 @@ export function createKaspaMcpServer(): McpServer {
       description:
         "Build an unsigned deploy transaction (safe on mainnet). User signs externally. Accepts source, cacheKey, or bytecode+abi.",
       inputSchema: {
-        network: z.string(),
+        network: z
+          .string()
+          .optional()
+          .describe("EVM network id. Call choose_network first if omitted."),
         source: z.string().optional(),
         cacheKey: z.string().optional(),
         contractName: z.string().optional(),
@@ -281,7 +320,11 @@ export function createKaspaMcpServer(): McpServer {
     },
     async (args) => {
       try {
-        const network = getNetwork(args.network);
+        const resolved = resolveNetwork({ explicit: args.network, kind: "evm" });
+        const ask = needNetworkChoicePayload(resolved);
+        if (ask) return ask;
+        if (!resolved.ok) return err("network resolve failed");
+        const network = resolved.network;
         const backend = backendFor(network);
         if (!backend.prepareDeploy) {
           throw new SafetyError(`Network ${network.id} cannot prepare EVM deploys`);
@@ -317,7 +360,15 @@ export function createKaspaMcpServer(): McpServer {
           },
           meta: { contractName: compiled.contractName },
         });
-        return ok({ safety: SAFETY_BANNER, prepared, abi: compiled.abi, contractName: compiled.contractName, tapToApprove });
+        return ok({
+          safety: SAFETY_BANNER,
+          ...(resolved.mainnetWarning ? { mainnetWarning: resolved.mainnetWarning } : {}),
+          networkSource: resolved.source,
+          prepared,
+          abi: compiled.abi,
+          contractName: compiled.contractName,
+          tapToApprove,
+        });
       } catch (e) {
         return err(e);
       }
@@ -329,7 +380,7 @@ export function createKaspaMcpServer(): McpServer {
     {
       description: "eth_call / read a view function on an EVM contract.",
       inputSchema: {
-        network: z.string(),
+        network: z.string().optional().describe("Defaults to session or " + DEFAULT_EVM_TESTNET + ""),
         address: z.string(),
         abi: z.array(z.unknown()),
         functionName: z.string(),
@@ -340,7 +391,9 @@ export function createKaspaMcpServer(): McpServer {
       try {
         if (abi.length > MAX_ABI_ITEMS) throw new Error(`abi exceeds ${MAX_ABI_ITEMS} items`);
         if (args && args.length > MAX_CALL_ARGS) throw new Error(`args exceeds ${MAX_CALL_ARGS} items`);
-        const network = getNetwork(nid);
+        const resolved = resolveNetwork({ explicit: nid, kind: "evm", allowSafeFallback: true });
+        if (!resolved.ok) return ok({ safety: SAFETY_BANNER, ...resolved });
+        const network = resolved.network;
         const backend = backendFor(network);
         if (!backend.readContract) throw new SafetyError("read_contract not supported on this network");
         return ok(await backend.readContract(network, address, abi, functionName, args ?? []));
@@ -353,9 +406,9 @@ export function createKaspaMcpServer(): McpServer {
   server.registerTool(
     "prepare_call",
     {
-      description: "Prepare an unsigned state-changing contract call.",
+      description: "Prepare an unsigned state-changing contract call. Ask Testnet or mainnet? via choose_network first if network omitted.",
       inputSchema: {
-        network: z.string(),
+        network: z.string().optional().describe("EVM network id; omit only after choose_network"),
         address: z.string(),
         abi: z.array(z.unknown()),
         functionName: z.string(),
@@ -368,7 +421,11 @@ export function createKaspaMcpServer(): McpServer {
       try {
         if (a.abi.length > MAX_ABI_ITEMS) throw new Error(`abi exceeds ${MAX_ABI_ITEMS} items`);
         if (a.args && a.args.length > MAX_CALL_ARGS) throw new Error(`args exceeds ${MAX_CALL_ARGS} items`);
-        const network = getNetwork(a.network);
+        const resolved = resolveNetwork({ explicit: a.network, kind: "evm" });
+        const ask = needNetworkChoicePayload(resolved);
+        if (ask) return ask;
+        if (!resolved.ok) return err("network resolve failed");
+        const network = resolved.network;
         const backend = backendFor(network);
         if (!backend.prepareCall) throw new SafetyError("prepare_call not supported");
         const prepared = await backend.prepareCall(
@@ -391,7 +448,13 @@ export function createKaspaMcpServer(): McpServer {
             nonce: prepared.nonce,
           },
         });
-        return ok({ safety: SAFETY_BANNER, prepared, tapToApprove });
+        return ok({
+          safety: SAFETY_BANNER,
+          ...(resolved.mainnetWarning ? { mainnetWarning: resolved.mainnetWarning } : {}),
+          networkSource: resolved.source,
+          prepared,
+          tapToApprove,
+        });
       } catch (e) {
         return err(e);
       }
@@ -402,12 +465,19 @@ export function createKaspaMcpServer(): McpServer {
     "send_raw_transaction",
     {
       description: "Broadcast a user-signed raw transaction to an EVM network.",
-      inputSchema: { network: z.string(), rawTx: z.string() },
+      inputSchema: {
+        network: z.string().optional().describe("EVM network; choose_network first if omitted"),
+        rawTx: z.string(),
+      },
     },
     async ({ network: nid, rawTx }) => {
       try {
         assertRawTxShape(rawTx);
-        const network = getNetwork(nid);
+        const resolved = resolveNetwork({ explicit: nid, kind: "evm" });
+        const ask = needNetworkChoicePayload(resolved);
+        if (ask) return ask;
+        if (!resolved.ok) return err("network resolve failed");
+        const network = resolved.network;
         const backend = backendFor(network);
         if (!backend.sendRawTransaction) throw new SafetyError("send_raw_transaction not supported");
         return ok(await backend.sendRawTransaction(network, rawTx.trim()));
@@ -421,11 +491,16 @@ export function createKaspaMcpServer(): McpServer {
     "get_balance",
     {
       description: "Native balance on EVM (Kasplex/Igra) or Kaspa L1 (sompi via api.kaspa.org).",
-      inputSchema: { network: z.string(), address: z.string() },
+      inputSchema: {
+        network: z.string().optional().describe("Defaults to session preference or testnet"),
+        address: z.string(),
+      },
     },
     async ({ network: nid, address }) => {
       try {
-        const network = getNetwork(nid);
+        const resolved = resolveNetwork({ explicit: nid, kind: "any", allowSafeFallback: true });
+        if (!resolved.ok) return ok({ safety: SAFETY_BANNER, ...resolved });
+        const network = resolved.network;
         return ok(await backendFor(network).getBalance(network, address));
       } catch (e) {
         return err(e);
@@ -437,11 +512,16 @@ export function createKaspaMcpServer(): McpServer {
     "get_tx",
     {
       description: "Fetch a transaction by hash on EVM or Kaspa L1.",
-      inputSchema: { network: z.string(), hash: z.string() },
+      inputSchema: {
+        network: z.string().optional().describe("Defaults to session preference or testnet"),
+        hash: z.string(),
+      },
     },
     async ({ network: nid, hash }) => {
       try {
-        const network = getNetwork(nid);
+        const resolved = resolveNetwork({ explicit: nid, kind: "any", allowSafeFallback: true });
+        if (!resolved.ok) return ok({ safety: SAFETY_BANNER, ...resolved });
+        const network = resolved.network;
         const result = await backendFor(network).getTx(network, hash);
         // strip bulky raw from default response noise but keep status
         const { raw: _raw, ...rest } = result;
@@ -456,11 +536,15 @@ export function createKaspaMcpServer(): McpServer {
     "faucet_info",
     {
       description: "How to get free testnet funds for a network. Does not claim (captcha/PoW may apply). $0 only.",
-      inputSchema: { network: z.string() },
+      inputSchema: {
+        network: z.string().optional().describe("Defaults to kaspa-l1-testnet-10"),
+      },
     },
     async ({ network: nid }) => {
       try {
-        const n = getNetwork(nid);
+        const resolved = resolveNetwork({ explicit: nid, kind: "l1", allowSafeFallback: true });
+        if (!resolved.ok) return ok({ safety: SAFETY_BANNER, ...resolved });
+        const n = resolved.network;
         if (!n.isTestnet) {
           return ok({
             network: n.id,
@@ -494,7 +578,7 @@ export function createKaspaMcpServer(): McpServer {
     {
       description: "Kaspa L1 blockDAG summary from public api.kaspa.org (or tn10).",
       inputSchema: {
-        network: z.enum(["kaspa-l1-mainnet", "kaspa-l1-testnet-10"]).default("kaspa-l1-mainnet"),
+        network: z.enum(["kaspa-l1-mainnet", "kaspa-l1-testnet-10"]).default("kaspa-l1-testnet-10"),
       },
     },
     async ({ network: nid }) => {
@@ -514,11 +598,15 @@ export function createKaspaMcpServer(): McpServer {
     "verify_rpc",
     {
       description: "Ping an EVM network eth_chainId and compare to the registry (health check).",
-      inputSchema: { network: z.string() },
+      inputSchema: {
+        network: z.string().optional().describe("Defaults to kasplex-testnet"),
+      },
     },
     async ({ network: nid }) => {
       try {
-        const n = getNetwork(nid);
+        const resolved = resolveNetwork({ explicit: nid, kind: "evm", allowSafeFallback: true });
+        if (!resolved.ok) return ok({ safety: SAFETY_BANNER, ...resolved });
+        const n = resolved.network;
         if (n.kind !== "evm" || !n.rpcUrl) throw new Error("verify_rpc is for EVM networks with rpcUrl");
         const res = await fetch(n.rpcUrl, {
           method: "POST",
@@ -697,7 +785,10 @@ export function createKaspaMcpServer(): McpServer {
       description:
         "Build fund tx for a P2SH covenant. Default: unsigned SafeJSON + tapToApprove. With autoSignBroadcast=true on self-host with a spending wallet, signs+broadcasts (testnet default; mainnet needs KASPA_SPENDING_MAINNET=1). Shared demo never auto-signs. UNAUDITED.",
       inputSchema: {
-        network: z.string().default("kaspa-l1-testnet-10"),
+        network: z
+          .string()
+          .optional()
+          .describe("L1 network id. Omit only after choose_network — otherwise ask Testnet or mainnet?"),
         fromAddress: z.string().optional().describe("Required unless autoSignBroadcast (then spending wallet address is used)"),
         amountSompi: z.union([z.string(), z.number()]),
         priorityFeeSompi: z.union([z.string(), z.number()]).optional(),
@@ -710,7 +801,11 @@ export function createKaspaMcpServer(): McpServer {
     },
     async (a) => {
       try {
-        const network = getNetwork(a.network);
+        const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
+        const ask = needNetworkChoicePayload(resolved);
+        if (ask) return ask;
+        if (!resolved.ok) return err("network resolve failed");
+        const network = resolved.network;
         let loadedBc: Uint8Array;
         let loaded;
         if (a.templateId) {
@@ -812,9 +907,9 @@ export function createKaspaMcpServer(): McpServer {
     "l1_prepare_spend",
     {
       description:
-        "Prepare/spend a P2SH covenant UTXO. Default: prepare + tapToApprove. autoSignBroadcast uses self-host spending wallet (fills $sig/$pk). Chat privateKey still TESTNET-only ephemeral; preferred path is spending wallet. Shared demo never auto-signs. UNAUDITED.",
+        "Prepare/spend a P2SH covenant UTXO. Default: prepare + tapToApprove. autoSignBroadcast uses self-host spending wallet (fills $sig/$pk). Chat privateKey still TESTNET-only ephemeral; preferred path is spending wallet. Shared demo never auto-signs. UNAUDITED. Ask Testnet or mainnet? via choose_network if network omitted.",
       inputSchema: {
-        network: z.string().default("kaspa-l1-testnet-10"),
+        network: z.string().optional().describe("L1 network; choose_network first if omitted"),
         entry: z.string(),
         args: z.array(z.unknown()),
         destinationAddress: z.string(),
@@ -836,7 +931,11 @@ export function createKaspaMcpServer(): McpServer {
     },
     async (a) => {
       try {
-        const network = getNetwork(a.network);
+        const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
+        const ask = needNetworkChoicePayload(resolved);
+        if (ask) return ask;
+        if (!resolved.ok) return err("network resolve failed");
+        const network = resolved.network;
         if (a.privateKey && !network.isTestnet) {
           throw new Error("privateKey rejected on mainnet L1");
         }
@@ -958,7 +1057,7 @@ export function createKaspaMcpServer(): McpServer {
         "Node: key written to local file (not echoed). Cloudflare Worker: one-shot privateKeyHex + wrangler secret put steps. " +
         "Refused on shared demo. Never accepts a pasted main-wallet key/seed.",
       inputSchema: {
-        network: z.string().default("kaspa-l1-testnet-10"),
+        network: z.string().optional().describe("L1 network; choose_network first if omitted (testnet recommended)"),
         mainAddress: z
           .string()
           .describe("Locked withdraw destination (your main/cold kaspatest:/kaspa: address). Required."),
@@ -967,7 +1066,11 @@ export function createKaspaMcpServer(): McpServer {
     },
     async (a) => {
       try {
-        const network = getNetwork(a.network);
+        const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
+        const ask = needNetworkChoicePayload(resolved);
+        if (ask) return ask;
+        if (!resolved.ok) return err("network resolve failed");
+        const network = resolved.network;
         if (!a.mainAddress?.trim()) {
           throw new SafetyError("mainAddress is required (locked withdraw_all destination)");
         }
@@ -1009,11 +1112,13 @@ export function createKaspaMcpServer(): McpServer {
     {
       description:
         "Show spending wallet config (address, mainAddress, caps, covenant count). Never returns the private key.",
-      inputSchema: { network: z.string().default("kaspa-l1-testnet-10") },
+      inputSchema: { network: z.string().optional().describe("Defaults to session or TN10") },
     },
     async (a) => {
       try {
-        const network = getNetwork(a.network);
+        const resolved = resolveNetwork({ explicit: a.network, kind: "l1", allowSafeFallback: true });
+        if (!resolved.ok) return ok({ safety: SAFETY_BANNER, ...resolved });
+        const network = resolved.network;
         const status = await spendingWalletStatus(network);
         let balanceSompiStr: string | undefined;
         if (status.address) {
@@ -1037,13 +1142,17 @@ export function createKaspaMcpServer(): McpServer {
         "SELF-HOST ONLY. Sweep the entire spending wallet balance to the locked mainAddress set at creation. " +
         "No destination parameter (prompt-injection cannot redirect). Caps still apply on mainnet.",
       inputSchema: {
-        network: z.string().default("kaspa-l1-testnet-10"),
+        network: z.string().optional().describe("L1 network; choose_network first if omitted"),
         priorityFeeSompi: z.union([z.string(), z.number()]).optional(),
       },
     },
     async (a) => {
       try {
-        const network = getNetwork(a.network);
+        const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
+        const ask = needNetworkChoicePayload(resolved);
+        if (ask) return ask;
+        if (!resolved.ok) return err("network resolve failed");
+        const network = resolved.network;
         const result = await spendingWalletWithdrawAll({
           network,
           priorityFeeSompi: a.priorityFeeSompi != null ? BigInt(a.priorityFeeSompi) : undefined,
@@ -1102,7 +1211,7 @@ export function createKaspaMcpServer(): McpServer {
         "SELF-HOST ONLY. Chat-deploy reviewed TipJar with spending wallet as owner: compile (silverc or Worker rebind) → fund P2SH → registry. " +
         "No wallet popup. Requires spending_wallet_create({ mainAddress }) + funded address. Pure-JS signer works on free Cloudflare Workers.",
       inputSchema: {
-        network: z.string().default("kaspa-l1-testnet-10"),
+        network: z.string().optional().describe("L1 network; choose_network first if omitted"),
         amountSompi: z.union([z.string(), z.number()]).default("100000000").describe("Fund amount (default 1 tKAS)"),
         priorityFeeSompi: z.union([z.string(), z.number()]).optional(),
       },
@@ -1112,7 +1221,11 @@ export function createKaspaMcpServer(): McpServer {
         if (isSharedPublicDemo()) {
           throw new SafetyError("l1_tipjar_chat_deploy refused on shared demo — self-host");
         }
-        const network = getNetwork(a.network);
+        const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
+        const ask = needNetworkChoicePayload(resolved);
+        if (ask) return ask;
+        if (!resolved.ok) return err("network resolve failed");
+        const network = resolved.network;
         const key = assertCanAutoSign(network);
         const ownerAddress = await addressForKey(key.hex, network);
         const pkhHex = await ownerPkhHex(key.hex);
@@ -1153,6 +1266,137 @@ export function createKaspaMcpServer(): McpServer {
       }
     },
   );
+
+
+  server.registerTool(
+    "choose_network",
+    {
+      description:
+        "REQUIRED EARLY: remember Testnet or mainnet for this session before any build/deploy/prepare. " +
+        "Ask the user 'Testnet or mainnet?' then call this. Mainnet responses include the UNAUDITED warning.",
+      inputSchema: {
+        choice: z.enum(["testnet", "mainnet"]).describe("User's explicit choice"),
+      },
+    },
+    async ({ choice }) => {
+      try {
+        const pref = setSessionNetworkChoice(choice as NetworkChoice);
+        return ok({
+          safety: SAFETY_BANNER,
+          remembered: true,
+          ...pref,
+          l1: getNetwork(pref.l1NetworkId),
+          evm: getNetwork(pref.evmNetworkId),
+          ...(choice === "mainnet"
+            ? {
+                mainnetWarning: L1_UNAUDITED_WARNING,
+                confirmWithUser:
+                  "Mainnet uses real KAS. Confirm the user accepts UNAUDITED / USE AT YOUR OWN RISK before deploying or funding.",
+              }
+            : {
+                note: "Testnet selected — safe for experiments. Use faucet_info for free tKAS.",
+              }),
+          next: "Proceed with templates / prepare / deploy on the remembered networks. Pass network= explicitly to override.",
+        });
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "network_preference",
+    {
+      description: "Show the session network choice (testnet/mainnet) if set. Does not change it.",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const pref = getSessionNetworkPreference();
+        if (!pref) {
+          return ok({
+            safety: SAFETY_BANNER,
+            set: false,
+            askUser: ASK_NETWORK_PROMPT,
+            hint: "Call choose_network after the user answers.",
+          });
+        }
+        return ok({ safety: SAFETY_BANNER, set: true, ...pref });
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "self_host",
+    {
+      description:
+        "Guided step-by-step wizard for everyday users to launch THEIR own Kaspa connector " +
+        "(free Cloudflare or local), set the spending-wallet secret, fund, and verify. " +
+        "Copy-paste commands in code blocks. Shared demo stays keyless — secrets only on the user's copy.",
+      inputSchema: {
+        step: z
+          .enum(["start", "deploy", "create_wallet", "set_secret", "fund", "verify", "connect", "status"])
+          .optional()
+          .describe("Wizard step (default start)"),
+        platform: z.enum(["cloudflare", "local"]).optional(),
+        mainAddress: z.string().optional().describe("User main/cold kaspatest: or kaspa: address for withdraw_all lock"),
+        workerUrl: z.string().optional().describe("User's MCP URL after deploy"),
+      },
+    },
+    async (a) => {
+      try {
+        return ok(await runSelfHostGuide(a));
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "l1_confirm_tx",
+    {
+      description:
+        "Poll public REST until a Kaspa L1 tx is accepted (or timed out). " +
+        "Use after submit to avoid orphan/reject-but-landed races. Returns tn10.kaspa.stream / explorer link.",
+      inputSchema: {
+        txid: z.string(),
+        network: z
+          .enum(["kaspa-l1-testnet-10", "kaspa-l1-mainnet", "testnet-10", "mainnet"])
+          .optional()
+          .describe("Defaults to session or TN10"),
+        timeoutMs: z.number().optional(),
+      },
+    },
+    async (a) => {
+      try {
+        const raw = a.network;
+        let netId: "testnet-10" | "mainnet" = "testnet-10";
+        if (raw === "kaspa-l1-mainnet" || raw === "mainnet") netId = "mainnet";
+        else if (raw === "kaspa-l1-testnet-10" || raw === "testnet-10") netId = "testnet-10";
+        else {
+          const resolved = resolveNetwork({ explicit: undefined, kind: "l1", allowSafeFallback: true });
+          if (resolved.ok) netId = resolved.network.isTestnet ? "testnet-10" : "mainnet";
+        }
+        if (netId === "mainnet") {
+          // still allow confirm on mainnet reads
+        }
+        const conf = await confirmTransaction(netId, a.txid, {
+          timeoutMs: a.timeoutMs,
+        });
+        return ok({
+          safety: SAFETY_BANNER,
+          ...(netId === "mainnet" ? { mainnetWarning: L1_UNAUDITED_WARNING } : {}),
+          ...conf,
+          explorer: conf.explorer || explorerTxUrl(netId, conf.txid),
+        });
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
 
   // Resources for brainstorming  // Resources for brainstorming / docs
   server.registerResource(

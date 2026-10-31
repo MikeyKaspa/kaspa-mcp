@@ -15,6 +15,10 @@ MIT · Non-custodial · Designed for **$0** (public RPCs + free testnet faucets)
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/MikeyKaspa/kaspa-mcp)
 
 
+## Network choice
+
+Before build/deploy, the connector asks **Testnet or mainnet?** (`choose_network`). Testnet is the safe default. Mainnet shows an UNAUDITED warning. Guided self-host: `self_host` tool.
+
 ## Spending wallet (chat-deploy, any phone)
 
 Self-host only: create a **dedicated** hot wallet (`spending_wallet_create`), fund it once, then tools sign+broadcast with `autoSignBroadcast` / `l1_tipjar_chat_deploy` — no wallet popup. Key stays in **your** env/file/Worker secret, never on the shared demo. Testnet is the default; mainnet needs `KASPA_SPENDING_MAINNET=1` + balance cap (default 50 KAS). Tap-to-approve remains available. Details: [docs/SPENDING_WALLET.md](docs/SPENDING_WALLET.md). Roadmap / deferred mobile paths: [docs/ROADMAP.md](docs/ROADMAP.md).

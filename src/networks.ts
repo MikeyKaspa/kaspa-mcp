@@ -160,3 +160,6 @@ export function listNetworks(filter?: { kind?: string; testnetOnly?: boolean }):
 }
 
 export const DEFAULT_EVM_TESTNET = "kasplex-testnet";
+/** Safe L1 default — never mainnet unless the user explicitly chooses it. */
+export const DEFAULT_L1_TESTNET = "kaspa-l1-testnet-10";
+export const DEFAULT_L1_MAINNET = "kaspa-l1-mainnet";

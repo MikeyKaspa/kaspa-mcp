@@ -26,7 +26,9 @@ import {
   buildAndSignPayment,
   privateKeyToAddress,
   type RestUtxo,
+  type SubmitConfirmMeta,
 } from "./pure/tx.js";
+import { explorerTxUrl } from "./confirm.js";
 import { privateKeyToAddress as pureAddr } from "./pure/sign.js";
 
 function networkIdOf(network: NetworkInfo): "testnet-10" | "mainnet" {
@@ -59,6 +61,7 @@ export async function autoFundCovenant(opts: {
   amountSompi: string;
   templateId: ReviewedTemplateId;
   explorer: string;
+  confirmation?: SubmitConfirmMeta;
   mainnetBanner?: string;
 }> {
   assertReviewedTemplate(opts.templateId);
@@ -82,10 +85,7 @@ export async function autoFundCovenant(opts: {
     fundTxid: funded.txid,
     bytecodeHashHex: bytecodeHashHex(opts.bytecode),
   });
-  const explorer =
-    net === "testnet-10"
-      ? `https://tn10.kaspa.stream/transactions/${funded.txid}`
-      : `https://explorer.kaspa.org/transactions/${funded.txid}`;
+  const explorer = funded.confirmation?.explorer ?? explorerTxUrl(net, funded.txid);
   return {
     txid: funded.txid,
     p2shAddress: funded.p2shAddress,
@@ -93,6 +93,7 @@ export async function autoFundCovenant(opts: {
     amountSompi: funded.amountSompi,
     templateId: opts.templateId,
     explorer,
+    confirmation: funded.confirmation,
     mainnetBanner: opts.network.isTestnet ? undefined : SPENDING_MAINNET_BANNER,
   };
 }
@@ -116,6 +117,7 @@ export async function autoSpendCovenant(opts: {
   p2shAddress: string;
   destinationAddress: string;
   explorer: string;
+  confirmation?: SubmitConfirmMeta;
   mainnetBanner?: string;
 }> {
   const key = assertCanAutoSign(opts.network);
@@ -149,15 +151,13 @@ export async function autoSpendCovenant(opts: {
     p2shUtxo: restUtxo,
     feeSompi: fee,
   });
-  const explorer =
-    net === "testnet-10"
-      ? `https://tn10.kaspa.stream/transactions/${spent.txid}`
-      : `https://explorer.kaspa.org/transactions/${spent.txid}`;
+  const explorer = spent.confirmation?.explorer ?? explorerTxUrl(net, spent.txid);
   return {
     txid: spent.txid,
     p2shAddress: spent.p2shAddress,
     destinationAddress: opts.destinationAddress,
     explorer,
+    confirmation: spent.confirmation,
     mainnetBanner: opts.network.isTestnet ? undefined : SPENDING_MAINNET_BANNER,
   };
 }
@@ -172,6 +172,7 @@ export async function spendingWalletWithdrawAll(opts: {
   destinationAddress: string;
   amountSompi: string;
   explorer: string;
+  confirmations?: SubmitConfirmMeta[];
   mainnetBanner?: string;
 }> {
   const key = assertCanAutoSign(opts.network);
@@ -183,6 +184,7 @@ export async function spendingWalletWithdrawAll(opts: {
 
   const priorityFee = opts.priorityFeeSompi ?? 500_000n;
   const txids: string[] = [];
+  const confirmations: SubmitConfirmMeta[] = [];
   let totalSent = 0n;
 
   // Sweep per-UTXO (storage-mass safe)
@@ -198,30 +200,40 @@ export async function spendingWalletWithdrawAll(opts: {
     await assertBalanceAndTxCaps(opts.network, fromAddress, sendAmt, async () =>
       utxos.reduce((a, u) => a + u.amount, 0n),
     );
-    const { txid } = await buildAndSignPayment({
+    const paid = await buildAndSignPayment({
       networkId: net,
       privateKeyHex: key.hex,
       outputs: [{ address: reg.mainAddress, amount: sendAmt }],
       priorityFeeSompi: priorityFee,
       changeAddress: reg.mainAddress,
     });
-    txids.push(txid);
+    // Avoid stuck loops when REST recovers the same landed txid (UTXO index lag).
+    if (txids.includes(paid.txid)) {
+      confirmations.push(paid.confirmation);
+      await new Promise((r) => setTimeout(r, 2500));
+      const left = await fetchUtxos(net, fromAddress);
+      if (!left.length || left[0]!.outpoint.transactionId === entry.outpoint.transactionId) {
+        break;
+      }
+      continue;
+    }
+    txids.push(paid.txid);
+    confirmations.push(paid.confirmation);
     totalSent += sendAmt;
     await new Promise((r) => setTimeout(r, 1500));
   }
   if (!txids.length) throw new Error(`No UTXOs at spending wallet ${fromAddress}`);
 
-  const explorer =
-    net === "testnet-10"
-      ? `https://tn10.kaspa.stream/transactions/${txids[txids.length - 1]}`
-      : `https://explorer.kaspa.org/transactions/${txids[txids.length - 1]}`;
+  const last = txids[txids.length - 1]!;
+  const explorer = confirmations[confirmations.length - 1]?.explorer ?? explorerTxUrl(net, last);
   return {
-    txid: txids[txids.length - 1]!,
+    txid: last,
     txids,
     fromAddress,
     destinationAddress: reg.mainAddress,
     amountSompi: totalSent.toString(),
     explorer,
+    confirmations,
     mainnetBanner: opts.network.isTestnet ? undefined : SPENDING_MAINNET_BANNER,
   };
 }

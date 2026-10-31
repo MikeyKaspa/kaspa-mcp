@@ -112,6 +112,22 @@ async function main() {
     rateLimit: health.rateLimit,
   });
 
+  // Session network choice (ask-first path)
+  const netChoice = await tool("choose_network", { choice: "testnet" });
+  results.steps.push({
+    step: "choose_network",
+    choice: (netChoice.result ?? netChoice).choice,
+    l1NetworkId: (netChoice.result ?? netChoice).l1NetworkId,
+  });
+
+  // self_host verify step (guide only)
+  const guide = await tool("self_host", { step: "verify" });
+  results.steps.push({
+    step: "self_host_verify",
+    verified: (guide.result ?? guide).verified,
+    sharedDemo: (guide.result ?? guide).sharedDemo,
+  });
+
   // Create — may fail if already configured; then status
   let spendAddr;
   let createdKey;
@@ -211,6 +227,24 @@ async function main() {
     }
   } finally {
     await rpc.disconnect().catch(() => {});
+  }
+
+  // Bridge wRPC → REST lag before Worker pure-JS signer spends
+  {
+    const api = "https://api-tn10.kaspa.org";
+    let restBal = 0n;
+    for (let i = 0; i < 40; i++) {
+      const res = await fetch(api + "/addresses/" + encodeURIComponent(spendAddr) + "/utxos");
+      const list = await res.json();
+      restBal = (Array.isArray(list) ? list : []).reduce(
+        (a, u) => a + BigInt((u.utxoEntry || u).amount || 0),
+        0n,
+      );
+      if (restBal >= 3_0000_0000n) break;
+      await new Promise((r) => setTimeout(r, 800));
+    }
+    results.steps.push({ step: "rest_utxo_ready", balanceSompi: String(restBal) });
+    if (restBal < 1_0000_0000n) throw new Error("REST still empty after fund: " + restBal);
   }
 
   // tipjar chat-deploy on Worker

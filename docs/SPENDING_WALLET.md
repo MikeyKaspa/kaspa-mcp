@@ -18,6 +18,12 @@ on the shared demo Worker, never their main KasWare/Kaspium seed.
 
 Tap-to-approve (`tapToApprove.url`) remains the default non-custodial path.
 
+## Guided setup
+
+In chat (shared demo or your copy): call `self_host` and follow steps. It gives copy-paste commands; secrets are set only on **your** Cloudflare/local deploy.
+
+Also call `choose_network({ choice: "testnet" })` early (ask the user Testnet or mainnet?).
+
 ## Setup (Cloudflare Worker — free tier, pure-JS signer)
 
 Free Workers cannot load Node `kaspa-wasm`. This repo ships a **pure-JS L1 signer**

@@ -1,7 +1,6 @@
 /**
  * Pure-JS Kaspa tx build / SafeJSON / REST submit (Worker-safe).
  */
-import { blake2b } from "@noble/hashes/blake2.js";
 import {
   signInputSchnorr,
   payToScriptHashScript,
@@ -186,27 +185,137 @@ export function toSubmitModel(tx: PureTx, signatureScripts: string[]) {
   };
 }
 
+export type SubmitConfirmMeta = {
+  confirmed: boolean;
+  status: string;
+  explorer: string;
+  recoveredFromSubmitRace?: boolean;
+  detail?: string;
+};
+
+/**
+ * Submit via REST, then poll until accepted (or recover reject-but-landed races).
+ * Returns txid; attach confirmation on the returned object via submitTxRestDetailed when needed.
+ */
 export async function submitTxRest(
   networkId: "testnet-10" | "mainnet",
   tx: PureTx,
   signatureScripts: string[],
 ): Promise<string> {
+  const detailed = await submitTxRestDetailed(networkId, tx, signatureScripts);
+  return detailed.txid;
+}
+
+export async function submitTxRestDetailed(
+  networkId: "testnet-10" | "mainnet",
+  tx: PureTx,
+  signatureScripts: string[],
+): Promise<{ txid: string; confirmation: SubmitConfirmMeta }> {
+  const { confirmTransaction, extractTxidFromMessage, isLikelySubmitRaceError, explorerTxUrl } =
+    await import("../confirm.js");
   const body = {
     transaction: toSubmitModel(tx, signatureScripts),
     // Testnet: brief propagation lag between REST nodes; allow orphan so chained funds settle.
     allowOrphan: networkId !== "mainnet",
   };
-  const res = await fetch(`${apiBase(networkId)}/transactions`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const json = (await res.json()) as { transactionId?: string; error?: string };
-  if (!res.ok || json.error) {
-    throw new Error(json.error || `submit HTTP ${res.status}`);
+  let submitError: string | undefined;
+  let txid: string | undefined;
+  try {
+    const res = await fetch(`${apiBase(networkId)}/transactions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const json = (await res.json()) as { transactionId?: string; error?: string; detail?: string };
+    txid = json.transactionId?.toLowerCase();
+    if (!res.ok || json.error) {
+      submitError = json.error || json.detail || `submit HTTP ${res.status}`;
+      if (!txid) txid = extractTxidFromMessage(submitError);
+    }
+  } catch (e) {
+    submitError = e instanceof Error ? e.message : String(e);
+    txid = extractTxidFromMessage(submitError);
   }
-  if (!json.transactionId) throw new Error("submit missing transactionId");
-  return json.transactionId;
+
+  if (!txid) {
+    throw new Error(submitError || "submit missing transactionId");
+  }
+
+  let conf = await confirmTransaction(networkId, txid);
+  // Orphan / reject races: indexer may lag — one extra confirm window before failing.
+  if (
+    submitError &&
+    isLikelySubmitRaceError(submitError) &&
+    conf.status === "not_found"
+  ) {
+    await new Promise((r) => setTimeout(r, 2000));
+    conf = await confirmTransaction(networkId, txid, { timeoutMs: 10_000 });
+  }
+  if (conf.isAccepted) {
+    return {
+      txid,
+      confirmation: {
+        confirmed: true,
+        status: conf.status,
+        explorer: conf.explorer,
+        recoveredFromSubmitRace: Boolean(submitError),
+        detail: submitError
+          ? `Submit reported: ${submitError} — REST later showed accepted`
+          : undefined,
+      },
+    };
+  }
+
+  // Submit looked OK but not yet accepted — still return txid with pending meta when no hard error
+  if (!submitError) {
+    return {
+      txid,
+      confirmation: {
+        confirmed: false,
+        status: conf.status,
+        explorer: conf.explorer,
+        detail: conf.detail,
+      },
+    };
+  }
+
+  // Submit failed; only recover if REST found the tx (pending or accepted) on a race-like error
+  if (isLikelySubmitRaceError(submitError) && (conf.status === "pending" || conf.status === "accepted")) {
+    return {
+      txid,
+      confirmation: {
+        confirmed: conf.isAccepted,
+        status: conf.status,
+        explorer: conf.explorer,
+        recoveredFromSubmitRace: true,
+        detail: `Submit reported: ${submitError} — REST shows ${conf.status}`,
+      },
+    };
+  }
+
+  throw new Error(
+    `${submitError} (confirm=${conf.status}; ${explorerTxUrl(networkId, txid)})`,
+  );
+}
+
+/** Wait until REST shows UTXOs (bridges wRPC-fund → REST-submit lag). */
+export async function waitForRestUtxos(
+  networkId: "testnet-10" | "mainnet",
+  address: string,
+  minSompi: bigint,
+  opts?: { timeoutMs?: number; intervalMs?: number },
+): Promise<bigint> {
+  const timeoutMs = opts?.timeoutMs ?? 30_000;
+  const intervalMs = opts?.intervalMs ?? 800;
+  const start = Date.now();
+  let last = 0n;
+  while (Date.now() - start < timeoutMs) {
+    const utxos = await fetchUtxos(networkId, address);
+    last = utxos.reduce((a, u) => a + u.amount, 0n);
+    if (last >= minSompi) return last;
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  throw new Error(`REST UTXO wait timeout for ${address}: have ${last}, need ${minSompi}`);
 }
 
 /** Select UTXOs + build + sign P2PK payment (fund or withdraw). */
@@ -216,7 +325,15 @@ export async function buildAndSignPayment(opts: {
   outputs: Array<{ address: string; amount: bigint }>;
   priorityFeeSompi?: bigint;
   changeAddress?: string;
-}): Promise<{ tx: PureTx; signatureScripts: string[]; txid: string; safeJson: string }> {
+  /** Internal: orphan rebuild attempts (max 1 retry). */
+  _orphanAttempt?: number;
+}): Promise<{
+  tx: PureTx;
+  signatureScripts: string[];
+  txid: string;
+  safeJson: string;
+  confirmation: SubmitConfirmMeta;
+}> {
   const from = privateKeyToAddress(opts.privateKeyHex, opts.networkId);
   const utxos = await fetchUtxos(opts.networkId, from);
   if (!utxos.length) throw new Error(`No UTXOs at ${from}`);
@@ -243,8 +360,17 @@ export async function buildAndSignPayment(opts: {
     outputs,
   });
   const signatureScripts = tx.inputs.map((_, i) => bytesToHex(signInputSchnorr(tx, i, opts.privateKeyHex)));
-  const txid = await submitTxRest(opts.networkId, tx, signatureScripts);
-  return { tx, signatureScripts, txid, safeJson: toSafeJson(tx, signatureScripts) };
+  try {
+    const { txid, confirmation } = await submitTxRestDetailed(opts.networkId, tx, signatureScripts);
+    return { tx, signatureScripts, txid, safeJson: toSafeJson(tx, signatureScripts), confirmation };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const attempt = opts._orphanAttempt ?? 0;
+    if (attempt >= 1 || !/orphan/i.test(msg)) throw e;
+    // REST node lagged on parent UTXO — wait, refetch, rebuild once.
+    await new Promise((r) => setTimeout(r, 3000));
+    return buildAndSignPayment({ ...opts, _orphanAttempt: attempt + 1 });
+  }
 }
 
 export async function fundP2sh(opts: {
@@ -253,18 +379,18 @@ export async function fundP2sh(opts: {
   redeemBytecode: Uint8Array;
   amountSompi: bigint;
   priorityFeeSompi?: bigint;
-}): Promise<{ txid: string; p2shAddress: string; amountSompi: string }> {
+}): Promise<{ txid: string; p2shAddress: string; amountSompi: string; confirmation: SubmitConfirmMeta }> {
   if (opts.amountSompi < MIN_FUND_SOMPI) {
     throw new Error(`amount below MIN_FUND_SOMPI ${MIN_FUND_SOMPI}`);
   }
   const p2sh = p2shAddress(opts.redeemBytecode, opts.networkId);
-  const { txid } = await buildAndSignPayment({
+  const { txid, confirmation } = await buildAndSignPayment({
     networkId: opts.networkId,
     privateKeyHex: opts.privateKeyHex,
     outputs: [{ address: p2sh, amount: opts.amountSompi }],
     priorityFeeSompi: opts.priorityFeeSompi,
   });
-  return { txid, p2shAddress: p2sh, amountSompi: opts.amountSompi.toString() };
+  return { txid, p2shAddress: p2sh, amountSompi: opts.amountSompi.toString(), confirmation };
 }
 
 export async function spendP2sh(opts: {
@@ -276,7 +402,7 @@ export async function spendP2sh(opts: {
   destinationAddress: string;
   p2shUtxo: RestUtxo;
   feeSompi?: bigint;
-}): Promise<{ txid: string; p2shAddress: string }> {
+}): Promise<{ txid: string; p2shAddress: string; confirmation: SubmitConfirmMeta }> {
   const fee = opts.feeSompi ?? 500_000n;
   const inAmt = opts.p2shUtxo.amount;
   const outAmt = inAmt - fee;
@@ -309,8 +435,8 @@ export async function spendP2sh(opts: {
   }
   const unlock = buildEntryUnlock(entry, filled);
   const sigScript = payToScriptHashSignatureScript(opts.loaded.bytecode, unlock);
-  const txid = await submitTxRest(opts.networkId, tx, [bytesToHex(sigScript)]);
-  return { txid, p2shAddress: p2sh };
+  const { txid, confirmation } = await submitTxRestDetailed(opts.networkId, tx, [bytesToHex(sigScript)]);
+  return { txid, p2shAddress: p2sh, confirmation };
 }
 
 export { calcSchnorrSignatureHash, payToScriptHashScript, privateKeyToAddress, privateKeyToXonly };
