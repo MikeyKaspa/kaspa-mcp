@@ -116,6 +116,7 @@ export async function runSelfHostGuide(args: SelfHostArgs): Promise<Record<strin
         "5. Lock the one-shot key into YOUR Cloudflare secret (one copy-paste).",
         "6. Fund the spending address from the TN10 faucet.",
         "7. Verify, then say “build me a tip jar”.",
+        "Later: connector_version → if behind, self_host({ step: \"update\" }) (secrets/KV preserved; never auto).",
       ],
       trapToAvoid:
         "The big blue “Deploy to Cloudflare” button alone gives a keyless copy (tap-to-approve only). For no-popup chat-deploy you must use wrangler.selfhost.toml or npm run selfhost:setup.",

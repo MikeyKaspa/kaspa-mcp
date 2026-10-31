@@ -51,7 +51,7 @@ import { attachTapToApprove, utxoApiBaseFor, kaspaNetworkFor, contractLabelFor }
 import { compileSilverscript, isSilvercAvailable, silvercCompileHint } from "./l1/compile.js";
 import { coerceBytecode } from "./l1/artifact.js";
 import { resolveTemplateBytecodeForFund } from "./l1/resolve-template-bytecode.js";
-import { connectorVersion, checkAgainstLatest } from "./version.js";
+import { connectorVersion, checkAgainstLatest, scheduleLatestCheck, rememberLatestCheck, versionNoteIfBehind } from "./version.js";
 import {
   createSpendingWallet,
   spendingWalletStatus,
@@ -67,8 +67,21 @@ import {
 import { autoFundCovenant, autoSpendCovenant, spendingWalletWithdrawAll, balanceSompi } from "./l1/auto-sign.js";
 
 function ok(data: unknown): TextJson {
+  let payload: unknown = data;
+  // Self-hosters only: attach a soft note when this copy is behind latest (never auto-update).
+  if (
+    typeof data === "object" &&
+    data !== null &&
+    !Array.isArray(data) &&
+    !isSharedPublicDemo()
+  ) {
+    const note = versionNoteIfBehind();
+    if (note && !("versionNote" in (data as object))) {
+      payload = { ...(data as Record<string, unknown>), ...note };
+    }
+  }
   return {
-    content: [{ type: "text", text: typeof data === "string" ? data : JSON.stringify(data, null, 2) }],
+    content: [{ type: "text", text: typeof payload === "string" ? payload : JSON.stringify(payload, null, 2) }],
   };
 }
 function err(e: unknown): TextJson {
@@ -115,6 +128,7 @@ function compiledFromBytecode(args: {
 }
 
 export function createKaspaMcpServer(): McpServer {
+  scheduleLatestCheck();
   const server = new McpServer(
     {
       name: "kaspa-mcp",
@@ -1492,7 +1506,7 @@ export function createKaspaMcpServer(): McpServer {
         "Copy-paste commands in code blocks. Shared demo stays keyless — secrets only on the user's copy.",
       inputSchema: {
         step: z
-          .enum(["start", "deploy", "create_wallet", "set_secret", "fund", "verify", "connect", "status", "own_node"])
+          .enum(["start", "deploy", "create_wallet", "set_secret", "fund", "verify", "connect", "status", "own_node", "update"])
           .optional()
           .describe("Wizard step (default start)"),
         platform: z.enum(["cloudflare", "local"]).optional(),
@@ -1988,8 +2002,9 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
         const ver = connectorVersion();
         const check =
           a.checkLatest === false
-            ? { current: ver.version, behind: false }
+            ? { current: ver.version, behind: false as const }
             : await checkAgainstLatest();
+        if (a.checkLatest !== false) rememberLatestCheck(check);
         return ok({
           safety: SAFETY_BANNER,
           ...ver,

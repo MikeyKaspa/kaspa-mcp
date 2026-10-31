@@ -115,3 +115,56 @@ export async function checkAgainstLatest(opts?: {
     clearTimeout(t);
   }
 }
+
+/** In-memory latest-check cache so tool responses can note behind without hammering GitHub. */
+let cachedLatest: { at: number; result: LatestCheck } | null = null;
+const CACHE_MS = 60 * 60 * 1000;
+
+export function getCachedLatestCheck(): LatestCheck | null {
+  if (!cachedLatest) return null;
+  if (Date.now() - cachedLatest.at > CACHE_MS) return null;
+  return cachedLatest.result;
+}
+
+export function rememberLatestCheck(result: LatestCheck): void {
+  cachedLatest = { at: Date.now(), result };
+}
+
+/** Fire-and-forget refresh (safe on Workers; ignores failures). */
+export function scheduleLatestCheck(): void {
+  if (getCachedLatestCheck()) return;
+  void checkAgainstLatest()
+    .then((r) => rememberLatestCheck(r))
+    .catch(() => undefined);
+}
+
+/**
+ * Shape merged into tool JSON when a self-hosted copy is behind.
+ * Shared demo / missing cache → undefined (no note).
+ */
+export function versionNoteIfBehind():
+  | {
+      versionNote: {
+        behind: true;
+        current: string;
+        latest?: string;
+        message: string;
+        update: { tool: "self_host"; args: { step: "update" }; neverAutoUpdate: true };
+      };
+    }
+  | undefined {
+  const c = getCachedLatestCheck();
+  if (!c?.behind) return undefined;
+  return {
+    versionNote: {
+      behind: true,
+      current: c.current,
+      latest: c.latest,
+      message:
+        c.updateHint ||
+        'Your copy is behind. Call self_host({ step: "update" }) (secrets preserved). Never auto-updates.',
+      update: { tool: "self_host", args: { step: "update" }, neverAutoUpdate: true },
+    },
+  };
+}
+

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { connectorVersion, checkAgainstLatest } from "../src/version.js";
+import {
+  connectorVersion,
+  checkAgainstLatest,
+  rememberLatestCheck,
+  versionNoteIfBehind,
+  getCachedLatestCheck,
+} from "../src/version.js";
 import { runSelfHostGuide } from "../src/self-host.js";
 
 describe("version + self_host update", () => {
@@ -36,5 +42,25 @@ describe("version + self_host update", () => {
     expect(String(r.commands)).toContain("wrangler deploy");
     expect(r.neverAutoUpdate).toBe(true);
     expect(JSON.stringify(r)).not.toMatch(/0x[0-9a-fA-F]{64}/);
+  });
+
+  it("versionNoteIfBehind offers update when cache says behind", () => {
+    rememberLatestCheck({
+      current: "0.1.0",
+      latest: "v9.9.9",
+      behind: true,
+      updateHint: 'Call self_host({ step: "update" })',
+    });
+    const n = versionNoteIfBehind();
+    expect(n?.versionNote.behind).toBe(true);
+    expect(n?.versionNote.update.args.step).toBe("update");
+    expect(n?.versionNote.update.neverAutoUpdate).toBe(true);
+    expect(getCachedLatestCheck()?.behind).toBe(true);
+  });
+
+  it("self_host start lists update in overview", async () => {
+    process.env.MCP_PUBLIC = "true";
+    const r = await runSelfHostGuide({ step: "start" });
+    expect(JSON.stringify(r.overviewSteps)).toMatch(/update/);
   });
 });
