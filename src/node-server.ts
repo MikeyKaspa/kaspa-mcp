@@ -5,6 +5,7 @@
 import { createServer } from "node:http";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { createKaspaMcpServer } from "./server.js";
+import { setChooseNetworkContext, handleChooseNetworkHttp } from "./choose/network-choice.js";
 import { MAX_MCP_BODY_BYTES } from "./limits.js";
 import {
   createMemorySignStore,
@@ -23,6 +24,7 @@ const signStore = createMemorySignStore();
 setSignContext({ store: signStore, publicBaseUrl: PUBLIC_BASE });
 setCampaignPageContext({ kv: null, publicBaseUrl: PUBLIC_BASE });
 setContractPageContext({ kv: null, publicBaseUrl: PUBLIC_BASE });
+setChooseNetworkContext({ kv: null, publicBaseUrl: PUBLIC_BASE });
 
 async function handleMcp(req: Request): Promise<Response> {
   const server = createKaspaMcpServer();
@@ -97,6 +99,12 @@ const httpServer = createServer(async (req, res) => {
         headers,
         body: req.method === "GET" || req.method === "HEAD" ? undefined : body,
       });
+      const chooseRes = await handleChooseNetworkHttp(request);
+      if (chooseRes) {
+        res.writeHead(chooseRes.status, Object.fromEntries(chooseRes.headers.entries()));
+        res.end(Buffer.from(await chooseRes.arrayBuffer()));
+        return;
+      }
       const signRes = await handleSignHttp(request, signStore);
       if (signRes) {
         res.writeHead(signRes.status, Object.fromEntries(signRes.headers.entries()));
@@ -116,7 +124,7 @@ const httpServer = createServer(async (req, res) => {
         return;
       }
       res.writeHead(404, { "content-type": "text/plain" });
-      res.end("Not found. MCP: POST /mcp · Approve: GET /sign/<id> · Campaign: GET /campaign/<id> · /privacy · /terms · /support");
+      res.end("Not found. MCP: POST /mcp · Approve: GET /sign/<id> · Choose: GET /choose/<id> · Campaign: GET /campaign/<id> · /privacy · /terms · /support");
       return;
     }
 
@@ -157,6 +165,6 @@ const httpServer = createServer(async (req, res) => {
 
 httpServer.listen(PORT, HOST, () => {
   console.error(
-    `kaspa-mcp listening on http://${HOST}:${PORT}/mcp (health: /health, sign: /sign/<id>)`,
+    `kaspa-mcp listening on http://${HOST}:${PORT}/mcp (health: /health, sign: /sign/<id>, choose: /choose/<id>)`,
   );
 });

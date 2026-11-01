@@ -45,6 +45,8 @@ export interface L1BrowserBuild {
   lockTimeMs?: string;
   expectedP2shAddress?: string;
   sigOpCount?: number;
+  /** When true, page must create/unlock Quick-start and POST /api/sign/:id/bind before build */
+  quickStartBind?: boolean;
 }
 
 export interface SignSession {

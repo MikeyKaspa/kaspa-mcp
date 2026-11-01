@@ -2,6 +2,10 @@ import type { SignStore } from "./store.js";
 import { signPageHtml, signCsp, SIGN_CSS, SIGN_APP_JS } from "./page.js";
 import { summarizeL1SafeJson, summarizeEvmPrepared, explorerFor } from "./summary.js";
 import { renderSVG } from "uqr";
+import { resolveTemplateBytecodeForFund } from "../l1/resolve-template-bytecode.js";
+import { setSessionBoundWallet } from "../session-bound-wallet.js";
+import { createAoNCampaign } from "../crowdfund.js";
+import { createCampaignPage } from "../campaign-page.js";
 
 export async function handleSignHttp(
   request: Request,
@@ -164,6 +168,168 @@ export async function handleSignHttp(
   }
 
 
+
+
+  const bindMatch = pathname.match(/^\/api\/sign\/([a-f0-9]{32})\/bind$/i);
+  if (bindMatch && request.method === "POST") {
+    const id = bindMatch[1]!;
+    const session = await store.get(id);
+    if (!session) {
+      return Response.json({ error: "Unknown or expired sign session" }, { status: 404 });
+    }
+    let body: { address?: string; clientKey?: string } = {};
+    try {
+      body = (await request.json()) as { address?: string; clientKey?: string };
+    } catch {
+      return Response.json({ error: "JSON body required" }, { status: 400 });
+    }
+    const address = String(body.address || "").trim();
+    if (!address) return Response.json({ error: "address required" }, { status: 400 });
+    const kaspaNetwork = session.l1Build?.kaspaNetwork || (session.isMainnet ? "mainnet" : "testnet-10");
+    if (kaspaNetwork === "testnet-10" && !address.toLowerCase().startsWith("kaspatest:")) {
+      return Response.json({ error: "address must be kaspatest: on testnet-10" }, { status: 400 });
+    }
+    if (kaspaNetwork === "mainnet" && (!address.toLowerCase().startsWith("kaspa:") || address.toLowerCase().startsWith("kaspatest:"))) {
+      return Response.json({ error: "address must be kaspa: on mainnet" }, { status: 400 });
+    }
+
+    const meta = { ...(session.meta || {}) } as Record<string, unknown>;
+    const bindKind = String(meta.bindKind || session.kind);
+
+    try {
+      if (bindKind === "aon-create" || meta.aonCreate) {
+        const goalSompi = meta.goalSompi != null ? meta.goalSompi : "100000000";
+        const c = createAoNCampaign({
+          ownerAddress: address,
+          goalSompi: goalSompi as string | number,
+          deadlineMs: meta.deadlineMs as string | number | undefined,
+          graceMs: meta.graceMs as string | number | undefined,
+          network: kaspaNetwork,
+        });
+        const page = await createCampaignPage({
+          networkId: session.networkId,
+          ownerAddress: address,
+          ownerPkhHex: c.ownerPkhHex,
+          campaignTagHex: c.campaignTagHex,
+          goalSompi: c.goalSompi,
+          deadlineMs: c.deadlineMs,
+          graceMs: c.graceMs,
+          refundOpensAtMs: c.refundOpensAtMs,
+          title: "All-or-nothing crowdfund",
+        });
+        meta.ownerAddress = address;
+        meta.boundAddress = address;
+        meta.aonCampaign = c;
+        meta.sharePageUrl = page.url;
+        meta.sharePageId = page.record.id;
+        meta.quickStartBind = false;
+        session.meta = meta;
+        if (session.l1Build) {
+          session.l1Build.fromAddress = address;
+          session.l1Build.quickStartBind = false;
+        }
+        await store.put(session);
+        await setSessionBoundWallet({
+          address,
+          networkId: session.networkId,
+          kaspaNetwork,
+          source: "quick_start_bind",
+          clientKey: body.clientKey,
+        });
+        return Response.json({
+          ok: true,
+          boundAddress: address,
+          sharePage: { url: page.url, id: page.record.id },
+          campaign: c,
+          session: { id: session.id, l1Build: session.l1Build, meta: session.meta },
+        });
+      }
+
+      // Fund / send bind
+      if (!session.l1Build) {
+        return Response.json({ error: "session missing l1Build" }, { status: 400 });
+      }
+
+      if (session.kind === "l1-send") {
+        session.l1Build.fromAddress = address;
+        session.l1Build.quickStartBind = false;
+        meta.boundAddress = address;
+        meta.fromAddress = address;
+        meta.quickStartBind = false;
+        session.meta = meta;
+        await store.put(session);
+        await setSessionBoundWallet({
+          address,
+          networkId: session.networkId,
+          kaspaNetwork,
+          source: "quick_start_bind",
+          clientKey: body.clientKey,
+        });
+        return Response.json({
+          ok: true,
+          boundAddress: address,
+          session: { id: session.id, l1Build: session.l1Build, meta: session.meta },
+        });
+      }
+
+      // l1-fund: rebind template to owner
+      const templateId = String(meta.templateId || meta.bindTemplateId || "tipjar");
+      const resolvedBc = resolveTemplateBytecodeForFund({
+        templateId,
+        artifact: meta.bindArtifact,
+        contractName: meta.contractName as string | undefined,
+        bytecodeHex: meta.bindBytecodeHex as string | undefined,
+        ownerAddress: address,
+        ownerPkhHex: undefined,
+        expectedP2shAddress: undefined,
+        unlockAtMs: meta.unlockAtMs != null ? BigInt(String(meta.unlockAtMs)) : undefined,
+        goalSompi: meta.goalSompi != null ? BigInt(String(meta.goalSompi)) : undefined,
+        deadlineMs: meta.deadlineMs != null ? BigInt(String(meta.deadlineMs)) : undefined,
+        backerAddress: meta.backerAddress as string | undefined,
+        campaignTagHex: meta.campaignTagHex as string | undefined,
+        recipientXonlyHex: meta.recipientXonlyHex as string | undefined,
+        senderXonlyHex: meta.senderXonlyHex as string | undefined,
+        arbiterAddress: meta.arbiterAddress as string | undefined,
+        buyerXonlyHex: meta.buyerXonlyHex as string | undefined,
+        sellerXonlyHex: meta.sellerXonlyHex as string | undefined,
+        networkId: session.networkId,
+      });
+      session.l1Build.bytecodeHex = resolvedBc.bytecodeHex;
+      session.l1Build.fromAddress = address;
+      session.l1Build.expectedP2shAddress = resolvedBc.p2shAddress;
+      session.l1Build.quickStartBind = false;
+      meta.boundAddress = address;
+      meta.ownerAddress = address;
+      meta.fromAddress = address;
+      meta.p2shAddress = resolvedBc.p2shAddress;
+      meta.expectedP2shAddress = resolvedBc.p2shAddress;
+      meta.ownerPkhHex = resolvedBc.ownerPkhHex;
+      meta.rebound = resolvedBc.rebound;
+      meta.quickStartBind = false;
+      session.meta = meta;
+      await store.put(session);
+      await setSessionBoundWallet({
+        address,
+        networkId: session.networkId,
+        kaspaNetwork,
+        source: "quick_start_bind",
+        clientKey: body.clientKey,
+      });
+      return Response.json({
+        ok: true,
+        boundAddress: address,
+        p2shAddress: resolvedBc.p2shAddress,
+        ownerPkhHex: resolvedBc.ownerPkhHex,
+        rebound: resolvedBc.rebound,
+        session: { id: session.id, l1Build: session.l1Build, meta: session.meta },
+      });
+    } catch (e) {
+      return Response.json(
+        { error: e instanceof Error ? e.message : String(e) },
+        { status: 400 },
+      );
+    }
+  }
 
   if (pathname === "/api/qr.svg" && request.method === "GET") {
     const data = (url.searchParams.get("data") || "").trim();

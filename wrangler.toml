@@ -56,4 +56,4 @@ preview_id = "b62028ef832f476d9abb756013a32516"
 directory = "./public"
 binding = "ASSETS"
 # Worker handles API/MCP/sign pages; wasm JS served as assets.
-run_worker_first = ["/mcp", "/mcp/*", "/api/*", "/health", "/privacy", "/terms", "/support", "/sign", "/sign/*", "/page", "/page/*", "/campaign", "/campaign/*", "!/campaign/app.js", "!/sign/app.js", "!/sign/app.css", "/t", "/t/*", "!/sign/l1-build.js", "!/sign/quick-wallet.js"]
+run_worker_first = ["/mcp", "/mcp/*", "/api/*", "/health", "/privacy", "/terms", "/support", "/sign", "/sign/*", "/choose", "/choose/*", "/page", "/page/*", "/campaign", "/campaign/*", "!/campaign/app.js", "!/sign/app.js", "!/sign/app.css", "/t", "/t/*", "!/sign/l1-build.js", "!/sign/quick-wallet.js"]

@@ -20,6 +20,8 @@ import {
   setSignContext,
 } from "./sign/index.js";
 import { setNetworkPreferenceKv, setNetworkClientKey, hydrateSessionNetworkPreference } from "./session-network.js";
+import { setChooseNetworkContext, handleChooseNetworkHttp } from "./choose/network-choice.js";
+import { setBoundWalletKv, setBoundWalletClientKey } from "./session-bound-wallet.js";
 import { setContractPageContext, getContractPage, renderContractPageHtml } from "./contract-page.js";
 import { setCampaignPageContext } from "./campaign-page.js";
 import { handleCampaignHttp } from "./campaign-http.js";
@@ -128,10 +130,14 @@ export default {
       }
       if (existing) process.env.KASPA_SPENDING_REGISTRY_JSON = existing;
       setNetworkPreferenceKv(env.SIGN_SESSIONS);
+      setBoundWalletKv(env.SIGN_SESSIONS);
+      setChooseNetworkContext({ kv: env.SIGN_SESSIONS, publicBaseUrl: url.origin });
       setContractPageContext({ kv: env.SIGN_SESSIONS, publicBaseUrl: url.origin });
       setCampaignPageContext({ kv: env.SIGN_SESSIONS, publicBaseUrl: url.origin });
     } else {
       setNetworkPreferenceKv(null);
+      setBoundWalletKv(null);
+      setChooseNetworkContext({ kv: null, publicBaseUrl: url.origin });
       setContractPageContext({ kv: null, publicBaseUrl: url.origin });
       setCampaignPageContext({ kv: null, publicBaseUrl: url.origin });
     }
@@ -140,6 +146,7 @@ export default {
     const demoKey = request.headers.get("X-Kaspa-Demo-Key")?.trim();
     const ck = demoKey || `ip:${clientIp(request)}`;
     setNetworkClientKey(ck);
+    setBoundWalletClientKey(ck);
     await hydrateSessionNetworkPreference(ck);
 
     if (request.method === "OPTIONS") {
@@ -180,6 +187,9 @@ export default {
       setSignContext(null);
     }
 
+    const chooseRes = await handleChooseNetworkHttp(request);
+    if (chooseRes) return withCors(chooseRes);
+
     if (env.SIGN_SESSIONS) {
       const signRes = await handleSignHttp(request, createKvSignStore(env.SIGN_SESSIONS));
       if (signRes) return withCors(signRes);
@@ -202,7 +212,7 @@ export default {
     }
 
     if (url.pathname !== "/mcp") {
-      return withCors(new Response("Kaspa MCP — POST /mcp · GET /sign/<id> · GET /page/<id> · GET /campaign/<id> · /privacy · /terms · /support", { status: 404 }));
+      return withCors(new Response("Kaspa MCP — POST /mcp · GET /sign/<id> · GET /choose/<id> · GET /page/<id> · GET /campaign/<id> · /privacy · /terms · /support", { status: 404 }));
     }
 
     const bodyText =
