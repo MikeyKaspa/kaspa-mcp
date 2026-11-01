@@ -50,6 +50,10 @@ export function setNetworkClientKey(clientKey: string): void {
   store().clientKey = clientKey || "local";
 }
 
+export function getNetworkClientKey(): string {
+  return store().clientKey || "local";
+}
+
 function kvKey(clientKey: string): string {
   return `network-pref:${clientKey}`;
 }
@@ -106,10 +110,12 @@ export async function setSessionNetworkChoice(
 }
 
 export const ASK_NETWORK_PROMPT =
-  "Before we build or deploy anything: **Testnet or mainnet?** " +
-  "Testnet (TN10 / Kasplex testnet) is free and safe for experiments. " +
-  "Mainnet uses real KAS — UNAUDITED / use at your own risk. " +
-  "After the user answers, call choose_network({ choice: \"testnet\" | \"mainnet\" }).";
+  "Before we build or deploy anything: pick **Testnet** or **Mainnet** with ONE CLICK " +
+  "(native buttons / choice widget — never ask the user to type the word). " +
+  "Testnet: free test KAS, safe to experiment. " +
+  "Mainnet: real KAS; SilverScript is UNAUDITED; Quick-start wallet capped at 50 KAS. " +
+  "After they tap, call choose_network({ choice: \"testnet\" | \"mainnet\" }). " +
+  "If your host has no buttons, open the chooseUrl one-tap page from the tool result.";
 
 export type NetworkResolveOk = {
   ok: true;
@@ -182,26 +188,30 @@ export function resolveNetwork(opts: {
       testnet: {
         l1: DEFAULT_L1_TESTNET,
         evm: DEFAULT_EVM_TESTNET,
-        note: "Free faucet tokens. Preferred for all experiments.",
+        note: "Free test KAS (TN10 faucet). Safe to experiment — no real money at risk.",
       },
       mainnet: {
         l1: DEFAULT_L1_MAINNET,
         evm: "kasplex-mainnet",
-        warning: L1_UNAUDITED_WARNING,
+        warning: `${L1_UNAUDITED_WARNING} Quick-start wallet capped at 50 KAS.`,
       },
     },
-    hint: 'Ask the user, then call choose_network({ choice: "testnet" | "mainnet" }) or pass network= explicitly.',
+    hint: 'Show ONE-CLICK Testnet/Mainnet buttons (never type). Then choose_network({ choice }) or open chooseUrl. Pass network= to override.',
   };
 }
 
 export const MCP_NETWORK_INSTRUCTIONS = `
-## Network choice (required before build/deploy)
-BEFORE any compile-for-deploy, prepare_deploy, deploy_contract, l1_prepare_fund, l1_prepare_spend, l1_tipjar_chat_deploy, l1_vault_chat_deploy, l1_escrow_chat_deploy, or spending_wallet auto-sign:
-1. Ask the user: **Testnet or mainnet?**
-2. Call choose_network({ choice: "testnet" | "mainnet" }) to remember the answer (persisted across Worker isolates).
-3. On mainnet selection, show the UNAUDITED / USE AT YOUR OWN RISK warning and confirm they understand.
-4. If they have not chosen yet and a write tool returns needUserChoice, stop and ask — do not guess mainnet.
-5. Testnet (kaspa-l1-testnet-10 / kasplex-testnet) is the safe default when they are unsure.
+## Network choice (required before build/deploy) — ONE CLICK, never typed
+BEFORE any compile-for-deploy, prepare_deploy, deploy_contract, l1_prepare_fund, l1_prepare_spend, l1_prepare_send, l1_tipjar_chat_deploy, l1_vault_chat_deploy, l1_escrow_chat_deploy, or spending_wallet auto-sign:
+1. Present **Testnet** vs **Mainnet** as native clickable buttons/choice widgets. Keep each description visible:
+   - Testnet: free test KAS, safe to experiment.
+   - Mainnet: real KAS; UNAUDITED SilverScript; Quick-start 50 KAS cap.
+2. NEVER ask the user to type "testnet" or "mainnet".
+3. If the MCP client supports elicitation, the server may send elicitation/create (enum) — honor that UI.
+4. Tool results that need a choice include a structured \`choices\` array (id, label, description) and often \`chooseUrl\` (/choose/<id> one-tap page). Render choices as buttons; if you cannot, give the user chooseUrl.
+5. After they tap, call choose_network({ choice: "testnet" | "mainnet" }) (persisted across Worker isolates).
+6. On mainnet, show the UNAUDITED warning. Do not guess mainnet when unset.
+7. Testnet (kaspa-l1-testnet-10 / kasplex-testnet) when they are unsure.
 Read-only tools may use testnet safely without asking.
 For production independence: configure_node / self_host with YOUR kaspa-rest-server so submit/UTXO do not rely on a single public API.
 `.trim();

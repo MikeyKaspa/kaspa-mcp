@@ -262,6 +262,17 @@
       if (!session) throw new Error("Unknown or expired sign session");
       showProvisionalPlain(session);
       if (session.l1Build && session.l1Build.buildInBrowser) {
+        var needsBind =
+          session.l1Build.quickStartBind ||
+          ((session.kind === "l1-fund" || session.kind === "l1-send") && !session.l1Build.fromAddress) ||
+          (session.meta && session.meta.quickStartBind);
+        if (needsBind) {
+          status("Create or unlock Quick-start wallet — no address paste needed");
+          return import("/sign/l1-build.js").then(function (mod) {
+            l1Mod = mod;
+            return initQuickWalletUi({ autoBind: true });
+          });
+        }
         status("Building transaction…");
         return import("/sign/l1-build.js")
           .then(function (mod) {
@@ -624,7 +635,8 @@
     if (detectL1()) approveBtn.disabled = false;
   }
 
-  async function initQuickWalletUi() {
+  async function initQuickWalletUi(opts) {
+    opts = opts || {};
     var panel = $("quickWallet");
     if (!panel) return;
     if (!(session && (session.kind === "l1-fund" || session.kind === "l1-spend" || session.kind === "l1-send"))) {
@@ -643,6 +655,7 @@
       });
       useQuickWallet = true;
       await showQwUnlocked();
+      await bindQuickStartAddress();
       refreshApproveEnabled();
       return;
     }
@@ -652,19 +665,40 @@
     var match = list.filter(function (w) { return w.network === net; });
     if (qwUnlocked && qwUnlocked.network === net) {
       await showQwUnlocked();
+      await bindQuickStartAddress();
       return;
     }
     if (match.length) {
-      $("qwStatus").textContent = "Quick-start wallet found on this device — unlock to approve.";
+      $("qwStatus").textContent = opts.autoBind
+        ? "Quick-start wallet found — unlock to continue (Face ID / PIN)."
+        : "Quick-start wallet found on this device — unlock to approve.";
       setHidden($("qwCreate"), true);
       setHidden($("qwUnlock"), false);
       setHidden($("qwPasskeyBtn"), match[0].unlock !== "passkey-prf");
       window.__QW_ID__ = match[0].id;
       if (match[0].unlock === "passkey-prf") setHidden($("qwPasskeyBtn"), false);
+      // Prefer passkey one-tap when available
+      if (opts.autoBind && match[0].unlock === "passkey-prf") {
+        try {
+          await unlockQw(true);
+        } catch (e) {
+          $("qwStatus").textContent = "Tap Unlock / Passkey to continue: " + ((e && e.message) || e);
+        }
+      }
     } else {
-      $("qwStatus").textContent = "No Quick-start wallet on this device yet.";
+      $("qwStatus").textContent = opts.autoBind
+        ? "Creating your Quick-start wallet on this device…"
+        : "No Quick-start wallet on this device yet.";
       setHidden($("qwCreate"), false);
       setHidden($("qwUnlock"), true);
+      if (opts.autoBind) {
+        try {
+          await createQw();
+        } catch (e) {
+          $("qwStatus").textContent =
+            "Tap Create Quick-start wallet (Face ID or PIN): " + ((e && e.message) || e);
+        }
+      }
     }
     if (session.kind === "l1-send") {
       setHidden($("sendPanel"), false);
@@ -858,16 +892,64 @@
     }, 4000);
   }
 
+  async function bindQuickStartAddress() {
+    if (!qwUnlocked || !session) return null;
+    var needs =
+      (session.l1Build && session.l1Build.quickStartBind) ||
+      (session.meta && session.meta.quickStartBind) ||
+      ((session.kind === "l1-fund" || session.kind === "l1-send") &&
+        session.l1Build &&
+        !session.l1Build.fromAddress);
+    if (!needs) return null;
+    status("Binding Quick-start address…");
+    var res = await fetch("/api/sign/" + id + "/bind", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address: qwUnlocked.address }),
+    });
+    var body = await res.json();
+    if (!res.ok) throw new Error(body.error || "Bind failed");
+    if (body.session && body.session.l1Build) session.l1Build = body.session.l1Build;
+    if (body.session && body.session.meta) session.meta = body.session.meta;
+    if (body.sharePage && body.sharePage.url) {
+      status("Campaign ready — share link created", "ok");
+      if (resultEl) {
+        resultEl.hidden = false;
+        resultEl.innerHTML =
+          'Campaign share page: <a href="' +
+          escapeHtml(body.sharePage.url) +
+          '" target="_blank" rel="noopener">' +
+          escapeHtml(body.sharePage.url) +
+          "</a>";
+      }
+      return body;
+    }
+    return body;
+  }
+
   async function maybeRebuildWithQwAddress() {
     if (!qwUnlocked || !session || !session.l1Build || !l1Mod) return;
     if (session.kind !== "l1-fund" && session.kind !== "l1-send") return;
+    try {
+      await bindQuickStartAddress();
+    } catch (e) {
+      status("Bind failed: " + ((e && e.message) || e), "err");
+      return;
+    }
+    if (session.meta && session.meta.bindKind === "aon-create") return;
     // Rebuild using quick-start as fromAddress when missing or different
     var need =
       !session.l1Build.fromAddress ||
-      String(session.l1Build.fromAddress).toLowerCase() !== String(qwUnlocked.address).toLowerCase();
-    if (!need) return;
-    session.l1Build.fromAddress = qwUnlocked.address;
-    status("Rebuilding with Quick-start address…");
+      String(session.l1Build.fromAddress).toLowerCase() !== String(qwUnlocked.address).toLowerCase() ||
+      (session.kind === "l1-fund" && !session.l1Build.bytecodeHex);
+    if (session.l1Build.fromAddress &&
+        String(session.l1Build.fromAddress).toLowerCase() === String(qwUnlocked.address).toLowerCase() &&
+        session.kind === "l1-fund" &&
+        session.l1Build.bytecodeHex) {
+      need = true; // always rebuild after bind so summary shows P2SH
+    }
+    if (!session.l1Build.fromAddress) return;
+    status("Building with Quick-start address…");
     try {
       var b =
         session.kind === "l1-send"

@@ -101,7 +101,8 @@ describe("network defaults after change", () => {
       templateId: "tipjar",
     });
     expect(parsed?.needUserChoice).toBe(true);
-    expect(String(parsed?.askUser || "")).toMatch(/Testnet or mainnet/i);
+    expect(String(parsed?.askUser || "")).toMatch(/Testnet.*Mainnet|ONE CLICK/i);
+    expect(Array.isArray(parsed?.choices)).toBe(true);
   });
 
   it("deploy_contract without network asks", async () => {

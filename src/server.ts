@@ -8,8 +8,22 @@ import {
   hydrateSessionNetworkPreference,
   MCP_NETWORK_INSTRUCTIONS,
   ASK_NETWORK_PROMPT,
+  getNetworkClientKey,
   type NetworkChoice,
 } from "./session-network.js";
+import {
+  gateNetworkChoice,
+  NETWORK_CHOICES,
+  HOST_BUTTON_INSTRUCTIONS,
+  networkChoicesPayload,
+  enrichAskPayload,
+} from "./choose/network-choice.js";
+import {
+  resolveWorkingAddress,
+  setSessionBoundWallet,
+  getSessionBoundWallet,
+} from "./session-bound-wallet.js";
+
 import { runSelfHostGuide } from "./self-host.js";
 import { confirmTransaction, explorerTxUrl } from "./l1/confirm.js";
 import { estimateFees } from "./l1/fee.js";
@@ -98,10 +112,25 @@ function err(e: unknown): TextJson {
   return { content: [{ type: "text", text: redactSecrets(msg) }], isError: true };
 }
 
-/** If resolveNetwork says ask the user, return that payload; else null. */
-function needNetworkChoicePayload(resolved: ReturnType<typeof resolveNetwork>): TextJson | null {
-  if (resolved.ok) return null;
-  return ok({ safety: SAFETY_BANNER, ...resolved });
+/** Gate write tools: elicitation → choices+chooseUrl → or resolved network. */
+async function needNetwork(
+  mcp: McpServer,
+  opts: Parameters<typeof resolveNetwork>[0],
+): Promise<
+  | { ok: true; network: import("./types.js").NetworkInfo; choice: NetworkChoice; source: string; mainnetWarning?: string }
+  | { ok: false; response: TextJson }
+> {
+  const gated = await gateNetworkChoice(mcp, opts, getNetworkClientKey(), (data) =>
+    ok({ safety: SAFETY_BANNER, ...(data as object) }),
+  );
+  if (!gated.ok) return { ok: false, response: gated.response };
+  return {
+    ok: true,
+    network: gated.network,
+    choice: gated.choice,
+    source: gated.source,
+    mainnetWarning: gated.mainnetWarning,
+  };
 }
 
 const compiledCache = new Map<string, CompileResult>();
@@ -144,6 +173,9 @@ export function createKaspaMcpServer(): McpServer {
       version: "0.2.0",
     },
     {
+      capabilities: {
+        elicitation: {},
+      },
       instructions:
         `NON-CUSTODIAL. This connector never stores mainnet private keys. The shared demo is keyless (MCP_PUBLIC). ` +
         `Self-host may keep a dedicated spending key on YOUR Worker/env only — never paste a seed into chat.\n\n` +
@@ -154,8 +186,8 @@ export function createKaspaMcpServer(): McpServer {
         `CROWDFUND / FUNDRAISER / KICKSTARTER / "raise money" / all-or-nothing → ALWAYS call l1_aon_create_campaign ` +
         `(NOT tipjar, NOT TipGoalJar/softcap, NOT silverscript_compile, NOT l1_derive_p2sh). ` +
         `It uses a prebuilt artifact + rebind on the public connector — no local silverc. ` +
-        `Pass ownerAddress = the user's kaspatest: address, goalSompi (1 test KAS = 100000000), optional deadlineMs. ` +
-        `Return sharePage.url to the user. Track with campaign_status. After prepare, poll l1_check_session — do NOT ask the user for a txid. When status is submitted, call l1_confirm_tx to verify inclusion on chain. campaign_status tracks REGISTERED pledges only (MCP/API/one-tap), not random on-chain sends.\n\n` +
+        `Omit ownerAddress for newbies — returns a Quick-start bind tap link (page creates the wallet). Only pass ownerAddress if they volunteered an existing wallet. goalSompi (1 test KAS = 100000000), optional deadlineMs. ` +
+        `Return sharePage.url (or tapToApprove for bind) to the user. Track with campaign_status. After prepare, poll l1_check_session — do NOT ask the user for a txid. When status is submitted, call l1_confirm_tx to verify inclusion on chain. campaign_status tracks REGISTERED pledges only (MCP/API/one-tap), not random on-chain sends.\n\n` +
         `TipGoalJar (softcap) is NOT a crowdfund (no auto-refund). Only use when the user wants a tip/goal jar.\n\n` +
         `For everyday users who want chat-deploy without popups: guide them with self_host ` +
         `(Cloudflare Deploy button / dashboard first; Node only if they ask), then spending_wallet_create on THEIR copy. Shared demo is keyless.\n\n` +
@@ -300,10 +332,8 @@ export function createKaspaMcpServer(): McpServer {
     },
     async (args) => {
       try {
-        const resolved = resolveNetwork({ explicit: args.network, kind: "evm" });
-        const ask = needNetworkChoicePayload(resolved);
-        if (ask) return ask;
-        if (!resolved.ok) return err("network resolve failed");
+        const resolved = await needNetwork(server, { explicit: args.network, kind: "evm" });
+        if (!resolved.ok) return resolved.response;
         const network = resolved.network;
         // Reject mainnet keys before any compile / RPC work.
         const privateKey = normalizeTestnetPrivateKey(network, args.privateKey);
@@ -384,10 +414,8 @@ export function createKaspaMcpServer(): McpServer {
     },
     async (args) => {
       try {
-        const resolved = resolveNetwork({ explicit: args.network, kind: "evm" });
-        const ask = needNetworkChoicePayload(resolved);
-        if (ask) return ask;
-        if (!resolved.ok) return err("network resolve failed");
+        const resolved = await needNetwork(server, { explicit: args.network, kind: "evm" });
+        if (!resolved.ok) return resolved.response;
         const network = resolved.network;
         const backend = backendFor(network);
         if (!backend.prepareDeploy) {
@@ -487,10 +515,8 @@ export function createKaspaMcpServer(): McpServer {
       try {
         if (a.abi.length > MAX_ABI_ITEMS) throw new Error(`abi exceeds ${MAX_ABI_ITEMS} items`);
         if (a.args && a.args.length > MAX_CALL_ARGS) throw new Error(`args exceeds ${MAX_CALL_ARGS} items`);
-        const resolved = resolveNetwork({ explicit: a.network, kind: "evm" });
-        const ask = needNetworkChoicePayload(resolved);
-        if (ask) return ask;
-        if (!resolved.ok) return err("network resolve failed");
+        const resolved = await needNetwork(server, { explicit: a.network, kind: "evm" });
+        if (!resolved.ok) return resolved.response;
         const network = resolved.network;
         const backend = backendFor(network);
         if (!backend.prepareCall) throw new SafetyError("prepare_call not supported");
@@ -540,10 +566,8 @@ export function createKaspaMcpServer(): McpServer {
     async ({ network: nid, rawTx }) => {
       try {
         assertRawTxShape(rawTx);
-        const resolved = resolveNetwork({ explicit: nid, kind: "evm" });
-        const ask = needNetworkChoicePayload(resolved);
-        if (ask) return ask;
-        if (!resolved.ok) return err("network resolve failed");
+        const resolved = await needNetwork(server, { explicit: nid, kind: "evm" });
+        if (!resolved.ok) return resolved.response;
         const network = resolved.network;
         const backend = backendFor(network);
         if (!backend.sendRawTransaction) throw new SafetyError("send_raw_transaction not supported");
@@ -857,7 +881,7 @@ export function createKaspaMcpServer(): McpServer {
     {
       annotations: TOOL_ANNOTATIONS.l1_derive_p2sh,
       description:
-        "Derive P2SH for tipjar/vault/escrow (pass ownerAddress). For crowdfund/fundraiser/aon_pledge this tool REDIRECTS you to l1_aon_create_campaign — do not compile. TipGoalJar/softcap redirects to l1_prepare_fund.",
+        "Derive P2SH for tipjar/vault/escrow. ownerAddress OPTIONAL — omit for Quick-start bind tap (never ask user to generate an address). Crowdfund → l1_aon_create_campaign. TipGoalJar → l1_prepare_fund.",
       inputSchema: {
         bytecodeHex: z.string().optional(),
         artifact: z.unknown().optional(),
@@ -895,13 +919,62 @@ export function createKaspaMcpServer(): McpServer {
             next: 'l1_prepare_fund({ templateId: "softcap", fromAddress, ownerAddress, goalSompi, deadlineMs, amountSompi })',
           });
         }
-        const network = getNetwork(nid);
+        const network = getNetwork(nid || (getSessionNetworkPreference()?.l1NetworkId) || "kaspa-l1-testnet-10");
+        const kaspaNetwork = kaspaNetworkFor(network.id, network.isTestnet);
+        const working = await resolveWorkingAddress({
+          explicit: ownerAddress?.trim(),
+          kaspaNetwork,
+        });
+        if (!working) {
+          // Newbie path: one-tap bind+fund tipjar (or named template)
+          const tid = templateId || "tipjar";
+          const l1Build = {
+            buildInBrowser: true as const,
+            kaspaNetwork,
+            utxoApiBase: utxoApiBaseFor(network.id, network.isTestnet),
+            bytecodeHex: "",
+            amountSompi: "100000000",
+            quickStartBind: true,
+          };
+          const tapToApprove = await attachTapToApprove("l1-fund", network.id, {
+            l1Build,
+            meta: {
+              quickStartBind: true,
+              bindKind: "l1-fund",
+              templateId: tid,
+              contractName: contractLabelFor(tid, contractName),
+              bindArtifact: artifact,
+              bindBytecodeHex: bytecodeHex,
+              amountSompi: "100000000",
+            },
+          });
+          if (!tapToApprove) throw new Error("Sign session store unavailable");
+          return ok({
+            safety: SAFETY_BANNER,
+            mode: "quick_start_bind",
+            networkId: network.id,
+            tapToApprove,
+            tellUser:
+              "Open tapToApprove.url — Quick-start creates the owner wallet and derives the tip jar on the page. Never ask the user for an address.",
+            agentRule: "NEVER ask the user to generate a testnet address.",
+            next: "After they approve fund (optional), use boundAddress from later tool results / network_preference session.",
+            wallets: WALLET_TAP_APPROVE,
+          });
+        }
+        if (working.source === "explicit") {
+          await setSessionBoundWallet({
+            address: working.address,
+            networkId: network.id,
+            kaspaNetwork,
+            source: "explicit",
+          });
+        }
         const resolvedBc = resolveTemplateBytecodeForFund({
           templateId,
           artifact,
           contractName,
           bytecodeHex,
-          ownerAddress,
+          ownerAddress: working.address,
           ownerPkhHex,
           networkId: network.id,
         });
@@ -911,7 +984,9 @@ export function createKaspaMcpServer(): McpServer {
           address: resolvedBc.p2shAddress,
           p2shAddress: resolvedBc.p2shAddress,
           bytecodeHex: resolvedBc.bytecodeHex,
-          ownerAddress,
+          ownerAddress: working.address,
+          boundAddress: working.address,
+          addressSource: working.source,
           ownerPkhHex: resolvedBc.ownerPkhHex,
           rebound: resolvedBc.rebound,
           ...readyNotOnChain({ p2shAddress: resolvedBc.p2shAddress, templateId }),
@@ -940,15 +1015,15 @@ export function createKaspaMcpServer(): McpServer {
       annotations: TOOL_ANNOTATIONS.l1_prepare_fund,
       description:
         "Prepare a ONE-TAP fund link (public demo OK). Always returns tapToApprove.url — never tell users to send manually. " +
-        "ALWAYS rebinds the template to the exact owner/params you pass so the funded address matches what you showed the user. " +
-        "Pass expectedP2shAddress whenever you already showed an address — mismatch refuses. " +
-        "lockbox requires unlockAtMs; tip goal jar / aon_pledge require goalSompi+deadlineMs; escrow requires parties. UNAUDITED.",
+        "fromAddress/ownerAddress OPTIONAL for newbies: omit them → Quick-start bind mode (page creates/unlocks wallet, binds owner, rebuilds tipjar, faucet/QR, approve). " +
+        "NEVER ask the user to generate or paste an address — only use one if they volunteered an existing wallet. " +
+        "ALWAYS rebinds the template to the owner. Pass expectedP2shAddress when you already showed one. UNAUDITED.",
       inputSchema: {
         network: z
           .string()
           .optional()
           .describe("L1 network id. Omit only after choose_network — otherwise ask Testnet or mainnet?"),
-        fromAddress: z.string().optional().describe("Required unless autoSignBroadcast (then spending wallet address is used)"),
+        fromAddress: z.string().optional().describe("Optional. Omit for Quick-start bind (newbie). Spending wallet used when autoSignBroadcast."),
         amountSompi: z.union([z.string(), z.number()]),
         priorityFeeSompi: z.union([z.string(), z.number()]).optional(),
         bytecodeHex: z.string().optional(),
@@ -958,7 +1033,7 @@ export function createKaspaMcpServer(): McpServer {
         ownerAddress: z
           .string()
           .optional()
-          .describe("TipJar owner P2PK address (kaspatest:q…). Defaults to fromAddress. Required for tipjar binding."),
+          .describe("Optional TipJar owner. Defaults to fromAddress or session-bound Quick-start. Omit for bind mode."),
         ownerPkhHex: z.string().optional().describe("Optional explicit TipJar ownerPkh (32-byte hex)"),
         expectedP2shAddress: z
           .string()
@@ -980,12 +1055,77 @@ export function createKaspaMcpServer(): McpServer {
     },
     async (a) => {
       try {
-        const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
-        const ask = needNetworkChoicePayload(resolved);
-        if (ask) return ask;
-        if (!resolved.ok) return err("network resolve failed");
+        const resolved = await needNetwork(server, { explicit: a.network, kind: "l1" });
+        if (!resolved.ok) return resolved.response;
         const network = resolved.network;
-        const ownerAddress = a.ownerAddress?.trim() || a.fromAddress?.trim();
+        const kaspaNetwork = kaspaNetworkFor(network.id, network.isTestnet);
+        const working = await resolveWorkingAddress({
+          explicit: a.ownerAddress?.trim() || a.fromAddress?.trim(),
+          kaspaNetwork,
+        });
+        const ownerAddress = working?.address;
+        const fromAddress = a.fromAddress?.trim() || ownerAddress;
+        const quickStartBind = !ownerAddress && !a.autoSignBroadcast;
+
+        if (quickStartBind) {
+          const l1Build = {
+            buildInBrowser: true as const,
+            kaspaNetwork,
+            utxoApiBase: utxoApiBaseFor(network.id, network.isTestnet),
+            bytecodeHex: "",
+            fromAddress: undefined as string | undefined,
+            amountSompi: String(a.amountSompi),
+            priorityFeeSompi: a.priorityFeeSompi != null ? String(a.priorityFeeSompi) : undefined,
+            quickStartBind: true,
+          };
+          const tapToApprove = await attachTapToApprove("l1-fund", network.id, {
+            l1Build,
+            meta: {
+              quickStartBind: true,
+              bindKind: "l1-fund",
+              templateId: a.templateId || "tipjar",
+              contractName: contractLabelFor(a.templateId || "tipjar", a.contractName),
+              bindArtifact: a.artifact,
+              bindBytecodeHex: a.bytecodeHex,
+              unlockAtMs: a.unlockAtMs != null ? String(a.unlockAtMs) : undefined,
+              goalSompi: a.goalSompi != null ? String(a.goalSompi) : undefined,
+              deadlineMs: a.deadlineMs != null ? String(a.deadlineMs) : undefined,
+              amountSompi: String(a.amountSompi),
+              tellUser:
+                "Open the link. The page creates your Quick-start wallet (Face ID/PIN) — do not ask for an address. Fund via faucet (testnet) or QR, then Approve.",
+            },
+          });
+          if (!tapToApprove) throw new Error("Sign session store unavailable — cannot return tapToApprove link");
+          return ok({
+            safety: SAFETY_BANNER,
+            warning: L1_UNAUDITED_WARNING,
+            mode: "quick_start_bind",
+            networkId: network.id,
+            kaspaNetwork,
+            amountSompi: String(a.amountSompi),
+            fromAddress: null,
+            ownerAddress: null,
+            boundAddress: null,
+            tapToApprove,
+            tellUser:
+              "Open tapToApprove.url. Never ask the user for an address or to create a wallet themselves — the page does it. " +
+              (network.isTestnet ? "Testnet faucet: " + TN10_FAUCET_URL : "Mainnet: fund via QR (50 KAS Quick-start cap)."),
+            agentRule: "NEVER ask the user to generate/paste a testnet address. Only use an address if they volunteered one.",
+            wallets: WALLET_TAP_APPROVE,
+            note: TAP_APPROVE_NOTE,
+            neverManualSend: NEVER_MANUAL_SEND,
+          });
+        }
+
+        if (working?.source === "explicit") {
+          await setSessionBoundWallet({
+            address: ownerAddress!,
+            networkId: network.id,
+            kaspaNetwork,
+            source: "explicit",
+          });
+        }
+
         const resolvedBc = resolveTemplateBytecodeForFund({
           templateId: a.templateId,
           artifact: a.artifact,
@@ -1013,13 +1153,14 @@ export function createKaspaMcpServer(): McpServer {
         const p2shAddress = resolvedBc.p2shAddress;
         const l1Build = {
           buildInBrowser: true as const,
-          kaspaNetwork: kaspaNetworkFor(network.id, network.isTestnet),
+          kaspaNetwork,
           utxoApiBase: utxoApiBaseFor(network.id, network.isTestnet),
           bytecodeHex,
-          fromAddress: a.fromAddress,
+          fromAddress,
           amountSompi: String(a.amountSompi),
           priorityFeeSompi: a.priorityFeeSompi != null ? String(a.priorityFeeSompi) : undefined,
           expectedP2shAddress: p2shAddress,
+          quickStartBind: false,
         };
         if (a.autoSignBroadcast) {
           if (isSharedPublicDemo()) {
@@ -1047,8 +1188,9 @@ export function createKaspaMcpServer(): McpServer {
             tapToApproveOptional: "Still available via prepare without autoSignBroadcast",
           });
         }
-        // Prefer browser-build session so shared Worker works without Node wasm.
-        const useNode = await kaspaWasmAvailable();
+        // Prefer browser-build tap links (Worker has no Node wasm; newbies need bind→rebuild on page).
+        // Node prepareFund remains available via autoSignBroadcast / self-host paths.
+        const useNode = false;
         if (!useNode) {
           const tapToApprove = await attachTapToApprove("l1-fund", network.id, {
             l1Build,
@@ -1072,8 +1214,10 @@ export function createKaspaMcpServer(): McpServer {
             networkId: network.id,
             kaspaNetwork: l1Build.kaspaNetwork,
             amountSompi: String(a.amountSompi),
-            fromAddress: a.fromAddress,
+            fromAddress,
             ownerAddress,
+            boundAddress: ownerAddress,
+            addressSource: working?.source || "explicit",
             p2shAddress,
             rebound: resolvedBc.rebound,
             tapToApprove,
@@ -1084,11 +1228,11 @@ export function createKaspaMcpServer(): McpServer {
             neverManualSend: NEVER_MANUAL_SEND,
           });
         }
-        if (!a.fromAddress) throw new Error("fromAddress required unless autoSignBroadcast");
+        if (!fromAddress) throw new Error("fromAddress required unless autoSignBroadcast or Quick-start bind");
         const prepared = await prepareFund({
           network,
           bytecode: loadedBc,
-          fromAddress: a.fromAddress,
+          fromAddress,
           amountSompi: BigInt(a.amountSompi),
           priorityFeeSompi: a.priorityFeeSompi != null ? BigInt(a.priorityFeeSompi) : undefined,
         });
@@ -1115,7 +1259,10 @@ export function createKaspaMcpServer(): McpServer {
           safety: SAFETY_BANNER,
           ...prepared,
           p2shAddress,
+          fromAddress,
           ownerAddress,
+          boundAddress: ownerAddress,
+          addressSource: working?.source || "explicit",
           rebound: resolvedBc.rebound,
           tapToApprove,
           ...readyNotOnChain({ p2shAddress, tapToApproveUrl: tapToApprove?.url, templateId: a.templateId }),
@@ -1132,8 +1279,8 @@ export function createKaspaMcpServer(): McpServer {
     {
       annotations: TOOL_ANNOTATIONS.l1_prepare_send,
       description:
-        "Prepare a ONE-TAP Send KAS link (public demo OK). User opens tapToApprove.url and approves in KasWare/Kastle/Kaspire OR the built-in Quick-start wallet (passkey/PIN on device — server never sees keys). " +
-        "Use when the user says e.g. 'send 3 KAS to <address>'. Validates mainnet vs testnet address prefixes. Prefer testnet. UNAUDITED on mainnet.",
+        "Prepare a ONE-TAP Send KAS link (public demo OK). fromAddress OPTIONAL — omit for Quick-start bind (page creates wallet as sender). " +
+        "NEVER ask the user to generate/paste a from address. toAddress is the destination. Prefer testnet. UNAUDITED on mainnet.",
       inputSchema: {
         network: z
           .string()
@@ -1141,7 +1288,8 @@ export function createKaspaMcpServer(): McpServer {
           .describe("L1 network id. Omit only after choose_network — otherwise ask Testnet or mainnet?"),
         fromAddress: z
           .string()
-          .describe("Sender P2PK address (kaspa: / kaspatest:). For Quick-start wallet, use the address shown on the approve page."),
+          .optional()
+          .describe("Optional sender. Omit for Quick-start bind / session-bound wallet."),
         toAddress: z.string().describe("Destination P2PK address — must match network prefix"),
         amountSompi: z.union([z.string(), z.number()]).describe("Amount in sompi (1 KAS = 100000000). Ignored when sendMax=true."),
         priorityFeeSompi: z.union([z.string(), z.number()]).optional(),
@@ -1150,27 +1298,40 @@ export function createKaspaMcpServer(): McpServer {
     },
     async (a) => {
       try {
-        const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
-        const ask = needNetworkChoicePayload(resolved);
-        if (ask) return ask;
-        if (!resolved.ok) return err("network resolve failed");
+        const resolved = await needNetwork(server, { explicit: a.network, kind: "l1" });
+        if (!resolved.ok) return resolved.response;
         const network = resolved.network;
         const kaspaNetwork = kaspaNetworkFor(network.id, network.isTestnet);
-        const fromAddress = a.fromAddress.trim();
         const toAddress = a.toAddress.trim();
         if (kaspaNetwork === "testnet-10") {
-          if (!fromAddress.toLowerCase().startsWith("kaspatest:")) {
-            throw new Error('fromAddress must start with kaspatest: on testnet-10');
-          }
           if (!toAddress.toLowerCase().startsWith("kaspatest:")) {
             throw new Error('toAddress must start with kaspatest: on testnet-10');
           }
         } else {
-          if (!fromAddress.toLowerCase().startsWith("kaspa:") || fromAddress.toLowerCase().startsWith("kaspatest:")) {
-            throw new Error('fromAddress must start with kaspa: on mainnet');
-          }
           if (!toAddress.toLowerCase().startsWith("kaspa:") || toAddress.toLowerCase().startsWith("kaspatest:")) {
             throw new Error('toAddress must start with kaspa: on mainnet');
+          }
+        }
+        const working = await resolveWorkingAddress({
+          explicit: a.fromAddress?.trim(),
+          kaspaNetwork,
+        });
+        const fromAddress = working?.address;
+        const quickStartBind = !fromAddress;
+        if (fromAddress) {
+          if (kaspaNetwork === "testnet-10" && !fromAddress.toLowerCase().startsWith("kaspatest:")) {
+            throw new Error('fromAddress must start with kaspatest: on testnet-10');
+          }
+          if (kaspaNetwork === "mainnet" && (!fromAddress.toLowerCase().startsWith("kaspa:") || fromAddress.toLowerCase().startsWith("kaspatest:"))) {
+            throw new Error('fromAddress must start with kaspa: on mainnet');
+          }
+          if (working?.source === "explicit") {
+            await setSessionBoundWallet({
+              address: fromAddress,
+              networkId: network.id,
+              kaspaNetwork,
+              source: "explicit",
+            });
           }
         }
         const amountSompi = a.sendMax ? "0" : String(a.amountSompi);
@@ -1180,24 +1341,28 @@ export function createKaspaMcpServer(): McpServer {
           kaspaNetwork,
           utxoApiBase: utxoApiBaseFor(network.id, network.isTestnet),
           bytecodeHex: "",
-          fromAddress,
+          fromAddress: fromAddress || undefined,
           toAddress,
           destinationAddress: toAddress,
           amountSompi,
           priorityFeeSompi: a.priorityFeeSompi != null ? String(a.priorityFeeSompi) : undefined,
           sendMax: Boolean(a.sendMax),
+          quickStartBind,
         };
         const tapToApprove = await attachTapToApprove("l1-send", network.id, {
           l1Build,
           meta: {
             contractName: "Send KAS",
             templateId: "send",
-            fromAddress,
+            fromAddress: fromAddress || null,
             toAddress,
             amountSompi,
             sendMax: Boolean(a.sendMax),
+            quickStartBind,
+            bindKind: "l1-send",
             quickStartHint:
-              "No extension? Use Quick-start wallet on this page (Face ID / PIN). Keys never leave the device.",
+              "No extension? Quick-start wallet on this page (Face ID / PIN). Keys never leave the device.",
+            agentRule: "NEVER ask the user for a from address — the page binds Quick-start.",
           },
         });
         if (!tapToApprove) {
@@ -1206,19 +1371,23 @@ export function createKaspaMcpServer(): McpServer {
         return ok({
           safety: SAFETY_BANNER,
           warning: network.isTestnet ? undefined : L1_UNAUDITED_WARNING,
-          mode: "browser_build",
+          mode: quickStartBind ? "quick_start_bind" : "browser_build",
           networkId: network.id,
           kaspaNetwork,
-          fromAddress,
+          fromAddress: fromAddress || null,
+          boundAddress: fromAddress || null,
+          addressSource: working?.source || null,
           toAddress,
           amountSompi,
           sendMax: Boolean(a.sendMax),
           tapToApprove,
-          tellUser:
-            "Open the approve link. Connect KasWare/Kastle/Kaspire, or create/unlock the Quick-start wallet on the page, then Approve. " +
-            (network.isTestnet
-              ? "Testnet: free faucet at " + TN10_FAUCET_URL
-              : "MAINNET: UNAUDITED — review amount and destination carefully."),
+          tellUser: quickStartBind
+            ? "Open the approve link. The page creates/unlocks Quick-start as the sender — do not ask for an address. Then Approve."
+            : "Open the approve link. Connect wallet or Quick-start, then Approve. " +
+              (network.isTestnet
+                ? "Testnet: free faucet at " + TN10_FAUCET_URL
+                : "MAINNET: UNAUDITED — review amount and destination carefully."),
+          agentRule: "NEVER ask the user to generate/paste a from address.",
           wallets: WALLET_TAP_APPROVE,
           quickStartWallet: true,
           note: TAP_APPROVE_NOTE,
@@ -1259,10 +1428,8 @@ export function createKaspaMcpServer(): McpServer {
     },
     async (a) => {
       try {
-        const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
-        const ask = needNetworkChoicePayload(resolved);
-        if (ask) return ask;
-        if (!resolved.ok) return err("network resolve failed");
+        const resolved = await needNetwork(server, { explicit: a.network, kind: "l1" });
+        if (!resolved.ok) return resolved.response;
         const network = resolved.network;
         if (a.privateKey && !network.isTestnet) {
           throw new Error("privateKey rejected on mainnet L1");
@@ -1397,10 +1564,8 @@ export function createKaspaMcpServer(): McpServer {
     },
     async (a) => {
       try {
-        const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
-        const ask = needNetworkChoicePayload(resolved);
-        if (ask) return ask;
-        if (!resolved.ok) return err("network resolve failed");
+        const resolved = await needNetwork(server, { explicit: a.network, kind: "l1" });
+        if (!resolved.ok) return resolved.response;
         const network = resolved.network;
         if (!a.mainAddress?.trim()) {
           throw new SafetyError("mainAddress is required (locked withdraw_all destination)");
@@ -1481,10 +1646,8 @@ export function createKaspaMcpServer(): McpServer {
     },
     async (a) => {
       try {
-        const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
-        const ask = needNetworkChoicePayload(resolved);
-        if (ask) return ask;
-        if (!resolved.ok) return err("network resolve failed");
+        const resolved = await needNetwork(server, { explicit: a.network, kind: "l1" });
+        if (!resolved.ok) return resolved.response;
         const network = resolved.network;
         const result = await spendingWalletWithdrawAll({
           network,
@@ -1583,10 +1746,8 @@ export function createKaspaMcpServer(): McpServer {
               "Do you want a one-tap approve link (KasWare / Kastle / Kaspire), or should I help you set up your own copy so I can deploy with no popups?",
           });
         }
-        const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
-        const ask = needNetworkChoicePayload(resolved);
-        if (ask) return ask;
-        if (!resolved.ok) return err("network resolve failed");
+        const resolved = await needNetwork(server, { explicit: a.network, kind: "l1" });
+        if (!resolved.ok) return resolved.response;
         const network = resolved.network;
         const key = assertCanAutoSign(network);
         const ownerAddress = await addressForKey(key.hex, network);
@@ -1647,7 +1808,8 @@ export function createKaspaMcpServer(): McpServer {
       annotations: TOOL_ANNOTATIONS.choose_network,
       description:
         "REQUIRED EARLY: remember Testnet or mainnet for this session before any build/deploy/prepare. " +
-        "Ask the user 'Testnet or mainnet?' then call this. Mainnet responses include the UNAUDITED warning.",
+        "Present ONE-CLICK buttons (never ask the user to type). Use the structured choices from needUserChoice results, " +
+        "or open chooseUrl. Mainnet responses include the UNAUDITED warning + 50 KAS Quick-start cap.",
       inputSchema: {
         choice: z.enum(["testnet", "mainnet"]).describe("User's explicit choice"),
       },
@@ -1689,11 +1851,17 @@ export function createKaspaMcpServer(): McpServer {
       try {
         const pref = getSessionNetworkPreference();
         if (!pref) {
+          const ask = resolveNetwork({ kind: "l1" });
+          if (!ask.ok) {
+            const enriched = await enrichAskPayload(ask, getNetworkClientKey());
+            return ok({ safety: SAFETY_BANNER, set: false, ...enriched });
+          }
           return ok({
             safety: SAFETY_BANNER,
             set: false,
             askUser: ASK_NETWORK_PROMPT,
-            hint: "Call choose_network after the user answers.",
+            ...networkChoicesPayload(),
+            hint: HOST_BUTTON_INSTRUCTIONS,
           });
         }
         return ok({ safety: SAFETY_BANNER, set: true, ...pref });
@@ -1927,10 +2095,8 @@ export function createKaspaMcpServer(): McpServer {
               "One-tap approve (KasWare / Kastle / Kaspire), or set up your own copy for no popups?",
           });
         }
-        const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
-        const ask = needNetworkChoicePayload(resolved);
-        if (ask) return ask;
-        if (!resolved.ok) return err("network resolve failed");
+        const resolved = await needNetwork(server, { explicit: a.network, kind: "l1" });
+        if (!resolved.ok) return resolved.response;
         const network = resolved.network;
         const key = assertCanAutoSign(network);
         const senderX = bytesToHex(privateKeyToXonly(key.hex));
@@ -2036,10 +2202,8 @@ export function createKaspaMcpServer(): McpServer {
               "One-tap approve (KasWare / Kastle / Kaspire), or set up your own copy for no popups?",
           });
         }
-        const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
-        const ask = needNetworkChoicePayload(resolved);
-        if (ask) return ask;
-        if (!resolved.ok) return err("network resolve failed");
+        const resolved = await needNetwork(server, { explicit: a.network, kind: "l1" });
+        if (!resolved.ok) return resolved.response;
         const network = resolved.network;
         const key = assertCanAutoSign(network);
         const arbiterPkh = await ownerPkhHex(key.hex);
@@ -2243,7 +2407,7 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
       description:
         "START A CROWDFUND / FUNDRAISER / KICKSTARTER (Stag Hunt style all-or-nothing). Owner claims anytime goal met; backers reclaim permissionlessly only after deadline+grace (default 3 days). Refunds are sent to the backer address by anyone — no host key. Not tipjar/TipGoalJar/softcap. Returns sharePage.url. Goal: 1 test KAS = 100000000 sompi.",
       inputSchema: {
-        ownerAddress: z.string().describe("Creator testnet/mainnet receive address"),
+        ownerAddress: z.string().optional().describe("Optional creator address. Omit for Quick-start bind on the tap page."),
         goalSompi: z.union([z.string(), z.number()]).describe("Goal in sompi (1 test KAS = 100000000)"),
         deadlineMs: z.union([z.string(), z.number()]).optional().describe("Unix ms campaign deadline; default now+7d"),
         graceMs: z.union([z.string(), z.number()]).optional().describe("Grace after deadline before refunds open; default 3 days"),
@@ -2252,20 +2416,64 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
     },
     async (a) => {
       try {
-        const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
-        const ask = needNetworkChoicePayload(resolved);
-        if (ask) return ask;
-        if (!resolved.ok) return err("network resolve failed");
+        const resolved = await needNetwork(server, { explicit: a.network, kind: "l1" });
+        if (!resolved.ok) return resolved.response;
+        const kaspaNetwork = kaspaNetworkFor(resolved.network.id, resolved.network.isTestnet);
+        const working = await resolveWorkingAddress({
+          explicit: a.ownerAddress?.trim(),
+          kaspaNetwork,
+        });
+        if (!working) {
+          const l1Build = {
+            buildInBrowser: true as const,
+            kaspaNetwork,
+            utxoApiBase: utxoApiBaseFor(resolved.network.id, resolved.network.isTestnet),
+            bytecodeHex: "",
+            quickStartBind: true,
+          };
+          const tapToApprove = await attachTapToApprove("l1-fund", resolved.network.id, {
+            l1Build,
+            meta: {
+              quickStartBind: true,
+              bindKind: "aon-create",
+              aonCreate: true,
+              templateId: "aon_pledge",
+              contractName: "All-or-nothing crowdfund",
+              goalSompi: String(a.goalSompi),
+              deadlineMs: a.deadlineMs != null ? String(a.deadlineMs) : undefined,
+              graceMs: a.graceMs != null ? String(a.graceMs) : undefined,
+            },
+          });
+          if (!tapToApprove) throw new Error("Sign session store unavailable");
+          return ok({
+            safety: SAFETY_BANNER,
+            mode: "quick_start_bind",
+            policy: AON_POLICY,
+            tapToApprove,
+            tellUser:
+              "Open tapToApprove.url. The page creates the creator Quick-start wallet and finishes the campaign — never ask for an address.",
+            agentRule: "NEVER ask the user to generate a receive address for crowdfund creation.",
+            wallets: WALLET_TAP_APPROVE,
+          });
+        }
+        if (working.source === "explicit") {
+          await setSessionBoundWallet({
+            address: working.address,
+            networkId: resolved.network.id,
+            kaspaNetwork,
+            source: "explicit",
+          });
+        }
         const c = createAoNCampaign({
-          ownerAddress: a.ownerAddress,
+          ownerAddress: working.address,
           goalSompi: a.goalSompi,
           deadlineMs: a.deadlineMs,
           graceMs: a.graceMs,
-          network: resolved.network.isTestnet ? "testnet-10" : "mainnet",
+          network: kaspaNetwork,
         });
         const page = await createCampaignPage({
           networkId: resolved.network.id,
-          ownerAddress: a.ownerAddress,
+          ownerAddress: working.address,
           ownerPkhHex: c.ownerPkhHex,
           campaignTagHex: c.campaignTagHex,
           goalSompi: c.goalSompi,
@@ -2278,6 +2486,9 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
           safety: SAFETY_BANNER,
           policy: AON_POLICY,
           campaign: c,
+          ownerAddress: working.address,
+          boundAddress: working.address,
+          addressSource: working.source,
           sharePage: { url: page.url, id: page.record.id },
           tellUser:
             "Campaign created. Share sharePage.url — backers pledge one-tap. Owner can claim as soon as the goal is met. If the goal is missed, refunds open after deadline+grace (default 3 days) — permissionless to the backer address. Track with campaign_status.",
@@ -2309,10 +2520,8 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
     },
     async (a) => {
       try {
-        const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
-        const ask = needNetworkChoicePayload(resolved);
-        if (ask) return ask;
-        if (!resolved.ok) return err("network resolve failed");
+        const resolved = await needNetwork(server, { explicit: a.network, kind: "l1" });
+        if (!resolved.ok) return resolved.response;
         const network = resolved.network;
         const c = createAoNCampaign({
           ownerAddress: a.ownerAddress,
@@ -2498,10 +2707,8 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
             askUser: "Set up your own copy for no-popup lockbox, or prepare a tap-to-approve fund link?",
           });
         }
-        const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
-        const ask = needNetworkChoicePayload(resolved);
-        if (ask) return ask;
-        if (!resolved.ok) return err("network resolve failed");
+        const resolved = await needNetwork(server, { explicit: a.network, kind: "l1" });
+        if (!resolved.ok) return resolved.response;
         const network = resolved.network;
         const key = assertCanAutoSign(network);
         const pkh = await ownerPkhHex(key.hex);
@@ -2587,10 +2794,8 @@ Public RPCs + free testnet faucets only. No paid APIs. Hosting on Cloudflare Wor
             betterCrowdfund: "For refundable all-or-nothing crowdfunding use aon_pledge.",
           });
         }
-        const resolved = resolveNetwork({ explicit: a.network, kind: "l1" });
-        const ask = needNetworkChoicePayload(resolved);
-        if (ask) return ask;
-        if (!resolved.ok) return err("network resolve failed");
+        const resolved = await needNetwork(server, { explicit: a.network, kind: "l1" });
+        if (!resolved.ok) return resolved.response;
         const network = resolved.network;
         const key = assertCanAutoSign(network);
         const pkh = await ownerPkhHex(key.hex);

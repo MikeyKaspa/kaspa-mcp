@@ -16,7 +16,7 @@ describe("session network preference", () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.needUserChoice).toBe(true);
-    expect(r.askUser).toContain("Testnet or mainnet");
+    expect(r.askUser).toMatch(/Testnet.*Mainnet|ONE CLICK/i);
     expect(r.options.testnet.l1).toBe(DEFAULT_L1_TESTNET);
     expect(r.options.mainnet.l1).toBe("kaspa-l1-mainnet");
   });
@@ -65,6 +65,6 @@ describe("session network preference", () => {
   });
 
   it("exports ask prompt for agents", () => {
-    expect(ASK_NETWORK_PROMPT).toMatch(/Testnet or mainnet/);
+    expect(ASK_NETWORK_PROMPT).toMatch(/ONE CLICK|Testnet.*Mainnet/i);
   });
 });
